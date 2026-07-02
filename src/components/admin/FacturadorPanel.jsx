@@ -164,8 +164,13 @@ export default function FacturadorPanel({ booking }) {
 
   // ── Generar factura INDIVIDUAL ────────────────────────────────────
   const generarIndividual = async () => {
-    if (!indiv.hotel || !indiv.check_in || !indiv.check_out || !indiv.precio_total_dop) {
-      setError('Completa hotel, fechas y precio total DOP.');
+    const isUSD = !indiv.precio_total_dop && !!indiv.precio_total_usd;
+    if (!indiv.hotel || !indiv.check_in || !indiv.check_out) {
+      setError('Completa hotel y fechas.');
+      return;
+    }
+    if (!indiv.precio_total_dop && !indiv.precio_total_usd) {
+      setError('Ingresa el precio total (DOP o USD).');
       return;
     }
     setGenerando(true);
@@ -185,8 +190,9 @@ export default function FacturadorPanel({ booking }) {
         habitaciones: parseInt(indiv.habitaciones) || 1,
         plan_alimenticio: indiv.plan,
         tipo_hab: indiv.tipo_hab,
-        precio_total_dop: parseFloat(indiv.precio_total_dop),
-        precio_total_usd: parseFloat(indiv.precio_total_usd) || 0
+        precio_total_dop: parseFloat(indiv.precio_total_dop) || 0,
+        precio_total_usd: parseFloat(indiv.precio_total_usd) || 0,
+        moneda: isUSD ? 'USD' : 'DOP'
       };
 
       const res = await fetch(`${N8N_BASE}/webhook/aliun-cotizacion-individual`, {
@@ -346,11 +352,23 @@ export default function FacturadorPanel({ booking }) {
             <Field label="Habitaciones">
               <Input type="number" value={indiv.habitaciones} onChange={v => setIndiv(p => ({...p, habitaciones: v}))} />
             </Field>
-            <Field label="Total DOP">
-              <Input type="number" value={indiv.precio_total_dop} onChange={v => setIndiv(p => ({...p, precio_total_dop: v}))} placeholder="Ej: 35300" />
+            <Field label="Moneda de factura">
+              <Select
+                value={indiv.precio_total_dop ? 'DOP' : 'USD'}
+                onChange={v => {
+                  if (v === 'DOP') setIndiv(p => ({...p, precio_total_usd: ''}));
+                  else setIndiv(p => ({...p, precio_total_dop: ''}));
+                }}
+                options={[{value:'DOP',label:'🇩🇴 DOP — Cliente dominicano'},{value:'USD',label:'🇺🇸 USD — Cliente extranjero'}]}
+              />
             </Field>
-            <Field label="Total USD (opcional)">
-              <Input type="number" value={indiv.precio_total_usd} onChange={v => setIndiv(p => ({...p, precio_total_usd: v}))} placeholder="Ej: 580" />
+            {(indiv.precio_total_dop || !indiv.precio_total_usd) && (
+              <Field label="Total DOP">
+                <Input type="number" value={indiv.precio_total_dop} onChange={v => setIndiv(p => ({...p, precio_total_dop: v, precio_total_usd: ''}))} placeholder="Ej: 35300" />
+              </Field>
+            )}
+            <Field label={indiv.precio_total_dop ? 'Total USD (opcional)' : 'Total USD'}>
+              <Input type="number" value={indiv.precio_total_usd} onChange={v => setIndiv(p => ({...p, precio_total_usd: v, precio_total_dop: ''}))} placeholder="Ej: 670" />
             </Field>
           </div>
 
@@ -359,6 +377,7 @@ export default function FacturadorPanel({ booking }) {
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-slate-400 flex gap-6">
               <span>🌙 {noches} {noches === 1 ? 'noche' : 'noches'}</span>
               {indiv.precio_total_dop && <span>💰 {fmtDOP(indiv.precio_total_dop)}</span>}
+              {indiv.precio_total_usd && !indiv.precio_total_dop && <span>💵 ${parseFloat(indiv.precio_total_usd).toLocaleString('en-US', {minimumFractionDigits: 2})} USD</span>}
             </div>
           )}
         </div>
