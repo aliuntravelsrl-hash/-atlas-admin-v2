@@ -201,10 +201,15 @@ export default function FacturadorPanel({ booking }) {
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-      const url = data.pdf_url || data.url;
-      if (!url) throw new Error('No se recibió URL del PDF');
-      setPdfUrl(url);
-      await logFactura('individual', ref, url, indiv.hotel);
+      // WF responde inmediatamente (async) — PDF llega por Telegram en ~15s
+      if (data.status === 'procesando' || !data.pdf_url) {
+        setPdfUrl('telegram');
+        await logFactura('individual', ref, 'telegram-async', indiv.hotel);
+      } else {
+        const url = data.pdf_url || data.url;
+        setPdfUrl(url);
+        await logFactura('individual', ref, url, indiv.hotel);
+      }
     } catch (e) {
       setError('Error generando factura: ' + e.message);
     } finally {
@@ -479,20 +484,34 @@ export default function FacturadorPanel({ booking }) {
       {/* ── PDF listo ─────────────────────────────────────────────── */}
       {pdfUrl && (
         <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <span className="text-emerald-400 text-lg">✅</span>
-            <span className="text-xs font-black text-emerald-400 uppercase tracking-wider">PDF Generado y guardado en Supabase Storage</span>
-          </div>
-          <a
-            href={pdfUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block w-full text-center py-2.5 rounded-lg font-black text-sm uppercase tracking-wider text-white transition"
-            style={{ background: NAVY, border: `1px solid ${GOLD}` }}
-          >
-            📥 Abrir / Descargar PDF
-          </a>
-          <p className="text-[10px] text-slate-500 text-center break-all">{pdfUrl}</p>
+          {pdfUrl === 'telegram' ? (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="text-emerald-400 text-lg">✅</span>
+                <span className="text-xs font-black text-emerald-400 uppercase tracking-wider">Factura en proceso</span>
+              </div>
+              <p className="text-xs text-slate-300 text-center">
+                📲 El PDF llegará a <strong>Telegram</strong> en los próximos 15–30 segundos.<br/>
+                <span className="text-slate-500">El proceso continúa en background — no es necesario esperar.</span>
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="text-emerald-400 text-lg">✅</span>
+                <span className="text-xs font-black text-emerald-400 uppercase tracking-wider">PDF Generado</span>
+              </div>
+              <a
+                href={pdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full text-center py-2.5 rounded-lg font-black text-sm uppercase tracking-wider text-white transition"
+                style={{ background: NAVY, border: `1px solid ${GOLD}` }}
+              >
+                📥 Abrir / Descargar PDF
+              </a>
+            </>
+          )}
         </div>
       )}
     </div>
