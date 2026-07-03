@@ -1009,6 +1009,22 @@ const AdminBookingsPanel = () => {
                   </div>
 
                   <div className="space-y-1">
+                    <Label className="text-slate-500 font-bold uppercase tracking-wider text-[10px]">Proveedor</Label>
+                    <Select value={filterSource} onValueChange={setFilterSource}>
+                      <SelectTrigger className="h-9 text-xs">
+                        <SelectValue placeholder="Todos" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todos</SelectItem>
+                        <SelectItem value="goglobal">GoGlobal / Yanolja</SelectItem>
+                        <SelectItem value="manual">Manual</SelectItem>
+                        <SelectItem value="tbo">TBO</SelectItem>
+                        <SelectItem value="ratehawk">Ratehawk</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1">
                     <Label className="text-slate-500 font-bold uppercase tracking-wider text-[10px]">Core Type</Label>
                     <Select value={filterCoreType} onValueChange={setFilterCoreType}>
                       <SelectTrigger className="h-9 text-xs">
