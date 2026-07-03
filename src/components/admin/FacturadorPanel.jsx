@@ -84,6 +84,9 @@ export default function FacturadorPanel({ booking }) {
     habitaciones: 1,
     precio_total_dop: '',
     precio_total_usd: '',
+    tipo_doc: 'COTIZACION',
+    deposito_usd: '',
+    deposito_dop: '',
     notas: ''
   });
 
@@ -107,21 +110,34 @@ export default function FacturadorPanel({ booking }) {
     if (!booking) return;
     const hotelName = booking.hotels_master?.name || booking.hotel_name || '';
     const hotelSlug = booking.hotels_master?.slug || booking.hotel_slug || '';
-    setIndiv(prev => ({
-      ...prev,
-      factura_num: genRef('FAC'),
-      hotel: hotelName,
-      hotel_slug: hotelSlug,
-      check_in: booking.check_in || '',
-      check_out: booking.check_out || '',
-      guest_lider: booking.lead_guest_name || booking.guest_name || '',
-      tipo_hab: booking.room_type || 'Doble',
-      plan: booking.meal_plan || 'Todo Incluido',
-      pax_adultos: booking.adults || 2,
-      pax_ninos: booking.children || 0,
-      precio_total_dop: booking.total_amount_dop || '',
-      precio_total_usd: booking.total_amount || ''
-    }));
+    // Cargar abonos de atlas_payments para este booking
+    supabase.from('atlas_payments')
+      .select('amount, currency')
+      .eq('booking_id', booking.id)
+      .eq('status', 'approved')
+      .then(({ data: pagos }) => {
+        const totalAbUSD = (pagos || []).filter(p => p.currency === 'USD').reduce((s, p) => s + parseFloat(p.amount), 0);
+        const totalAbDOP = (pagos || []).filter(p => p.currency === 'DOP').reduce((s, p) => s + parseFloat(p.amount), 0);
+        const totalAmt = parseFloat(booking.total_amount || 0);
+        setIndiv(prev => ({
+          ...prev,
+          factura_num: genRef('FAC'),
+          hotel: hotelName,
+          hotel_slug: hotelSlug,
+          check_in: booking.check_in || '',
+          check_out: booking.check_out || '',
+          guest_lider: booking.lead_guest_name || booking.guest_name || '',
+          tipo_hab: booking.room_name || booking.room_type || 'Doble',
+          plan: booking.meal_plan || 'Todo Incluido',
+          pax_adultos: booking.adults || 2,
+          pax_ninos: booking.children || 0,
+          precio_total_dop: booking.total_amount_dop || '',
+          precio_total_usd: booking.total_amount || '',
+          deposito_usd: totalAbUSD > 0 ? String(totalAbUSD) : '',
+          deposito_dop: totalAbDOP > 0 ? String(totalAbDOP) : '',
+          tipo_doc: (booking.status === 'confirmed' && totalAmt > 0) ? 'CONFIRMACION' : 'COTIZACION'
+        }));
+      });
     setGrupal(prev => ({
       ...prev,
       factura_num: genRef('FAC-GROUP'),
@@ -192,7 +208,12 @@ export default function FacturadorPanel({ booking }) {
         tipo_hab: indiv.tipo_hab,
         precio_total_dop: parseFloat(indiv.precio_total_dop) || 0,
         precio_total_usd: parseFloat(indiv.precio_total_usd) || 0,
-        moneda: isUSD ? 'USD' : 'DOP'
+        moneda: isUSD ? 'USD' : 'DOP',
+        tipo_documento: indiv.tipo_doc || 'COTIZACION',
+        deposito_usd: parseFloat(indiv.deposito_usd) || 0,
+        deposito_dop: parseFloat(indiv.deposito_dop) || 0,
+        saldo_usd: isUSD ? (parseFloat(indiv.precio_total_usd) - (parseFloat(indiv.deposito_usd) || 0)) : 0,
+        saldo_dop: !isUSD ? (parseFloat(indiv.precio_total_dop) - (parseFloat(indiv.deposito_dop) || 0)) : 0
       };
 
       const res = await fetch(`${N8N_BASE}/webhook/aliun-cotizacion-individual`, {
@@ -374,6 +395,16 @@ export default function FacturadorPanel({ booking }) {
             )}
             <Field label={indiv.precio_total_dop ? 'Total USD (opcional)' : 'Total USD'}>
               <Input type="number" value={indiv.precio_total_usd} onChange={v => setIndiv(p => ({...p, precio_total_usd: v, precio_total_dop: ''}))} placeholder="Ej: 670" />
+            </Field>
+            <Field label="Abono recibido (USD)">
+              <Input type="number" value={indiv.deposito_usd} onChange={v => setIndiv(p => ({...p, deposito_usd: v}))} placeholder="Ej: 100" />
+            </Field>
+            <Field label="Tipo de documento">
+              <Select
+                value={indiv.tipo_doc}
+                onChange={v => setIndiv(p => ({...p, tipo_doc: v}))}
+                options={[{value:'COTIZACION',label:'📋 Cotización'},{value:'CONFIRMACION',label:'✅ Confirmación de Reserva'}]}
+              />
             </Field>
           </div>
 
