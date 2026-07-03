@@ -149,6 +149,7 @@ const AdminBookingsPanel = () => {
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterPayment, setFilterPayment] = useState('all');
   const [filterCoreType, setFilterCoreType] = useState('all');
+  const [filterSource, setFilterSource] = useState('all');
 
   const { toast } = useToast();
 
@@ -536,24 +537,32 @@ const AdminBookingsPanel = () => {
     if (b.offer_id) bCoreType = 'Core 2';
     else if (b.room_id) bCoreType = 'Core 1';
     const matchesCoreType = filterCoreType === 'all' ? true : bCoreType === filterCoreType;
+    const matchesSource = filterSource === 'all' ? true : b.source === filterSource;
 
-    // Tabs List Filter
+    // Si hay filtros activos en el Quick Filter, ignorar restricción de tab
+    const hasActiveFilters = filterRef !== '' || filterHotelConf !== '' || filterGuestName !== '' ||
+      filterHotelName !== '' || filterDestination !== '' || filterCheckIn !== '' ||
+      filterSource !== 'all';
+
+    // Tabs List Filter — si hay filtros activos, mostrar todo sin restricción de tab
     let matchesTab = true;
-    if (activeTab === 'pending_validation') {
-      matchesTab = b.status === 'pending_validation';
-    } else if (activeTab === 'waiting_confirmation') {
-      matchesTab = b.status === 'waiting_confirmation';
-    } else if (activeTab === 'voucher_issued') {
-      matchesTab = b.fulfillment_status === 'voucher_issued';
-    } else if (activeTab === 'completed') {
-      matchesTab = b.fulfillment_status === 'completed';
-    } else if (activeTab === 'cancelled') {
-      matchesTab = b.status === 'cancelled';
+    if (!hasActiveFilters) {
+      if (activeTab === 'pending_validation') {
+        matchesTab = b.status === 'pending_validation';
+      } else if (activeTab === 'waiting_confirmation') {
+        matchesTab = b.status === 'waiting_confirmation';
+      } else if (activeTab === 'voucher_issued') {
+        matchesTab = b.fulfillment_status === 'voucher_issued';
+      } else if (activeTab === 'completed') {
+        matchesTab = b.fulfillment_status === 'completed';
+      } else if (activeTab === 'cancelled') {
+        matchesTab = b.status === 'cancelled';
+      }
     }
 
     return matchesSearch && matchesRef && matchesHotelConf && matchesGuestName && 
            matchesHotelName && matchesDestination && matchesCheckIn && 
-           matchesStatus && matchesPayment && matchesCoreType && matchesTab;
+           matchesStatus && matchesPayment && matchesCoreType && matchesSource && matchesTab;
   });
 
   const handleClearFilters = () => {
@@ -566,6 +575,7 @@ const AdminBookingsPanel = () => {
     setFilterStatus('all');
     setFilterPayment('all');
     setFilterCoreType('all');
+    setFilterSource('all');
     setSearchTerm('');
   };
 
