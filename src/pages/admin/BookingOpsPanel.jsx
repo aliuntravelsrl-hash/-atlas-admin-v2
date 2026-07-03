@@ -197,7 +197,7 @@ export default function BookingOpsPanel() {
             loadBookings()
           }}
           onPago={(id) => setActiveTab('pago')}
-          onRecibo={(id) => setActiveTab('recibo')}
+          onRecibo={(id) => { setActiveTab('recibo'); setReciboBookingId(id); }}
         />
       )}
 
@@ -213,7 +213,7 @@ export default function BookingOpsPanel() {
       )}
 
       {activeTab === 'recibo' && (
-        <TabRecibo bookings={bookings} hotels={hotels} />
+        <TabRecibo bookings={bookings} hotels={hotels} initialBookingId={reciboBookingId} />
       )}
 
       {activeTab === 'excursion' && (
@@ -766,8 +766,8 @@ function TabPago({ bookings, onRegistered, onError }) {
 // ════════════════════════════════════════════════════════════
 // TAB 4 — RECIBO
 // ════════════════════════════════════════════════════════════
-function TabRecibo({ bookings, hotels }) {
-  const [bookingId, setBookingId] = useState('')
+function TabRecibo({ bookings, hotels, initialBookingId = '' }) {
+  const [bookingId, setBookingId] = useState(initialBookingId)
   const [payments, setPayments]   = useState([])
   const [loaded, setLoaded]       = useState(false)
 
@@ -787,6 +787,10 @@ function TabRecibo({ bookings, hotels }) {
       .order('created_at', { ascending: true })
       .then(({ data }) => { setPayments(data || []); setLoaded(true) })
   }, [bookingId])
+
+  useEffect(() => {
+    if (initialBookingId && !bookingId) setBookingId(initialBookingId)
+  }, [initialBookingId])
 
   const buildReceiptHTML = () => {
     const pRows = payments.map(p =>
@@ -924,10 +928,23 @@ Aliun Travel SRL · aliuntravelsrl.com · Generado ${now}</p>
 
   const handlePrint = () => {
     if (!booking) return
-    const w = window.open('', '_blank')
-    w.document.write(buildReceiptHTML())
-    w.document.close()
-    w.print()
+    try {
+      const html = buildReceiptHTML()
+      const blob = new Blob([html], { type: 'text/html' })
+      const url  = URL.createObjectURL(blob)
+      const w    = window.open(url, '_blank')
+      if (!w) {
+        // Fallback si popup blocker activo: descargar como HTML
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `recibo-${booking.booking_reference}.html`
+        a.click()
+      } else {
+        setTimeout(() => { w.print(); URL.revokeObjectURL(url) }, 800)
+      }
+    } catch (e) {
+      alert('Error al generar recibo: ' + e.message)
+    }
   }
 
   const handleCopy = () => {
