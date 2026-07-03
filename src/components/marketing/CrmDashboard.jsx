@@ -1,6 +1,115 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 
+const EXCHANGE_RATE = 61;
+
+const generarReciboPDF = async (deal) => {
+  // 1. Buscar booking del cliente
+  const { data: bookings } = await supabase
+    .from('bookings')
+    .select('*, hotels_master(name)')
+    .ilike('lead_guest_name', `%${(deal.crm_leads?.full_name || '').split(' ')[0]}%`)
+    .order('created_at', { ascending: false })
+    .limit(3);
+
+  const booking = bookings?.[0];
+  const total   = parseFloat(booking?.total_amount || deal.total_usd || 0);
+  const hotelNm = booking?.hotels_master?.name || deal.hotel_slug?.replace(/-/g,' ') || 'Hotel';
+  const ref     = booking?.booking_reference || 'N/A';
+  const guest   = deal.crm_leads?.full_name || 'Cliente';
+  const checkIn = booking?.check_in || '';
+  const checkOut= booking?.check_out || '';
+  const conf    = booking?.hotel_confirmation_no || '';
+
+  // 2. Cargar pagos
+  let paid = 0;
+  if (booking?.id) {
+    const { data: pagos } = await supabase
+      .from('atlas_payments')
+      .select('amount')
+      .eq('booking_id', booking.id)
+      .eq('status', 'approved');
+    paid = (pagos || []).reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+  }
+  const balance = total - paid;
+
+  const now = new Date().toLocaleDateString('es-DO', { year:'numeric', month:'long', day:'numeric' });
+  const GREEN = '#059669', RED = '#DC2626', NAVY = '#0A1628', GOLD = '#B8860B';
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>Recibo ${ref}</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:Arial,sans-serif;max-width:520px;margin:30px auto;color:#111;font-size:13px;padding:0 16px}
+  .hdr{background:${NAVY};color:white;padding:16px 20px;border-radius:10px 10px 0 0;display:flex;justify-content:space-between;align-items:center}
+  .hdr h2{font-size:17px;font-weight:800;margin:0}
+  .hdr .sub{color:${GOLD};font-size:10px;letter-spacing:2px;text-transform:uppercase;margin-top:2px}
+  .ref{color:${GOLD};font-size:13px;font-weight:700;text-align:right}
+  .conf-badge{background:#05966920;border:1px solid ${GREEN};color:${GREEN};font-size:10px;font-weight:700;padding:4px 12px;border-radius:20px;text-align:center;margin:12px 0}
+  .section{padding:12px 0;border-bottom:1px solid #e5e7eb}
+  .row{display:flex;justify-content:space-between;padding:4px 0;font-size:12px}
+  .row .lbl{color:#64748B}
+  .row .val{font-weight:600}
+  .abono{color:${GREEN};font-weight:700}
+  .saldo{color:${balance > 0 ? RED : GREEN};font-weight:700;font-size:15px}
+  .total-row{display:flex;justify-content:space-between;align-items:center;background:#FFF7E6;border:1.5px solid ${GOLD};border-radius:8px;padding:10px 14px;margin:12px 0}
+  .total-lbl{font-weight:700;font-size:13px;color:${NAVY}}
+  footer{text-align:center;color:#94A3B8;font-size:10px;margin-top:20px;background:${NAVY};padding:10px;border-radius:0 0 10px 10px;color:#94A3B8}
+  footer span{color:${GOLD};font-weight:700}
+  @media print{button{display:none}}
+  .btn{display:block;width:100%;background:${NAVY};color:white;border:none;padding:10px;border-radius:8px;font-weight:700;cursor:pointer;margin-top:12px;font-size:13px}
+</style></head><body>
+<div class="hdr">
+  <div><h2>ALIUN TRAVEL SRL</h2><div class="sub">Comprobante de Reserva</div></div>
+  <div class="ref">${ref}<br/><span style="font-size:10px;color:#94A3B8">${now}</span></div>
+</div>
+<div style="padding:16px">
+  <div class="conf-badge">${booking?.status === 'confirmed' ? '✓ RESERVA CONFIRMADA' : '⏳ PENDIENTE DE CONFIRMACIÓN'}</div>
+  
+  <div class="section">
+    <div class="row"><span class="lbl">Cliente</span><span class="val">${guest}</span></div>
+    <div class="row"><span class="lbl">Referencia</span><span class="val">${ref}</span></div>
+    ${conf ? `<div class="row"><span class="lbl">Conf. Proveedor</span><span class="val">${conf}</span></div>` : ''}
+  </div>
+  
+  <div class="section">
+    <div class="row"><span class="lbl">Hotel</span><span class="val">${hotelNm}</span></div>
+    ${checkIn ? `<div class="row"><span class="lbl">Check-in</span><span class="val">${checkIn}</span></div>` : ''}
+    ${checkOut ? `<div class="row"><span class="lbl">Check-out</span><span class="val">${checkOut}</span></div>` : ''}
+    <div class="row"><span class="lbl">PAX</span><span class="val">${booking?.adults || 2} adultos</span></div>
+  </div>
+  
+  <div class="section">
+    <div class="row"><span class="lbl">Total acordado</span><span class="val">$${total.toFixed(2)} USD</span></div>
+    ${paid > 0 ? `<div class="row"><span class="lbl">Abono recibido</span><span class="abono">-$${paid.toFixed(2)} USD</span></div>` : ''}
+  </div>
+  
+  <div class="total-row">
+    <span class="total-lbl">SALDO PENDIENTE</span>
+    <span class="saldo">${balance <= 0 ? '✓ Saldado' : '$' + balance.toFixed(2) + ' USD'}</span>
+  </div>
+  
+  <p style="font-size:10px;color:#94A3B8;margin-top:8px">• Saldo a cancelar antes del check-in.<br/>• Transferencia bancaria a nombre de Aliun Travel SRL.</p>
+  <button class="btn" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
+</div>
+<footer><span>Aliun Travel SRL</span> · aliuntravelsrl.com · Aliuntravelgroup@gmail.com</footer>
+</body></html>`;
+
+  try {
+    const blob = new Blob([html], { type: 'text/html' });
+    const url  = URL.createObjectURL(blob);
+    const w    = window.open(url, '_blank');
+    if (!w) {
+      const a = document.createElement('a');
+      a.href = url; a.download = `recibo-${ref}.html`; a.click();
+    } else {
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    }
+  } catch(e) {
+    alert('Error generando recibo: ' + e.message);
+  }
+};
+
 export const CrmDashboard = () => {
   const [stats, setStats] = useState({
     leadsByStage: {},
@@ -284,6 +393,7 @@ export const CrmDashboard = () => {
                 <th className="py-3 px-4 text-center">Margen</th>
                 <th className="py-3 px-4 text-center">Estado</th>
                 <th className="py-3 px-4 text-right">Fecha</th>
+                <th className="py-3 px-4 text-center">Recibo</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-850/60">
@@ -319,6 +429,14 @@ export const CrmDashboard = () => {
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right text-slate-400 font-mono">{dateFormatted}</td>
+                      <td className="py-3 px-4 text-center">
+                        <button
+                          onClick={() => generarReciboPDF(deal)}
+                          className="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white px-2.5 py-1 rounded-lg font-bold transition-colors"
+                        >
+                          🧾 Recibo
+                        </button>
+                      </td>
                     </tr>
                   );
                 })
