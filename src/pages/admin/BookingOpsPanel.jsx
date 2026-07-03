@@ -900,11 +900,14 @@ Aliun Travel SRL · aliuntravelsrl.com · Generado ${now}</p>
         pax_adultos:      booking.adults || 2,
         pax_ninos:        booking.children || 0,
         tipo_documento:   docType === 'confirmacion' ? 'CONFIRMACION' : 'COTIZACION',
+        precio_total_usd: total,
         precio_total_dop: Math.round(total * EXCHANGE_RATE),
+        deposito_usd:     paid,
         deposito_dop:     Math.round(paid * EXCHANGE_RATE),
+        saldo_usd:        balance,
         saldo_dop:        Math.round(balance * EXCHANGE_RATE),
         moneda:           cur,
-        provider_locator: booking.provider_locator || booking.booking_reference,
+        provider_locator: booking.hotel_confirmation_no || booking.booking_reference,
       }
     }
 
