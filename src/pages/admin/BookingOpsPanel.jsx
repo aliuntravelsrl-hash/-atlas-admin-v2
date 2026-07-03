@@ -767,6 +767,7 @@ function TabPago({ bookings, onRegistered, onError }) {
 // TAB 4 — RECIBO
 // ════════════════════════════════════════════════════════════
 function TabRecibo({ bookings, hotels, initialBookingId = '' }) {
+  const { rate: EXCHANGE_RATE } = useExchangeRate()
   const [bookingId, setBookingId] = useState(initialBookingId)
   const [payments, setPayments]   = useState([])
   const [loaded, setLoaded]       = useState(false)
