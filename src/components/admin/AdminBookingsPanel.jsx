@@ -184,6 +184,31 @@ const AdminBookingsPanel = () => {
     }
   }, [bookings]);
 
+  const notificarHermesQA = async (booking) => {
+    try {
+      await fetch('https://n8n-n8n.xaruuo.easypanel.host/webhook/hermes-qa-seguimiento', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          booking_reference: booking.booking_reference,
+          hotel_name:        booking.hotels_master?.name || booking.room_name || '',
+          hotel_conf_no:     booking.hotel_confirmation_no,
+          lead_name:         booking.lead_guest_name,
+          lead_phone:        booking.lead_phone || '',
+          lead_email:        booking.lead_email || '',
+          check_in:          booking.check_in,
+          check_out:         booking.check_out,
+          total_amount:      booking.total_amount,
+          currency:          booking.currency || 'USD',
+          tipo:              'seguimiento_cobro_72h',
+          fuente:            'admin_bookings_panel',
+        })
+      });
+    } catch (e) {
+      console.warn('Hermes-QA notificación fallida (no crítico):', e.message);
+    }
+  };
+
   const loadBookings = async () => {
     setLoading(true);
     try {
@@ -241,6 +266,12 @@ const AdminBookingsPanel = () => {
     setDetailTab(defaultTab);
     setIsDetailOpen(true);
     fetchCrmLead(booking.lead_guest_name);
+    const esPendienteCobro = booking.hotel_confirmation_no &&
+      booking.hotel_confirmation_no.trim() !== '' &&
+      booking.status !== 'cancelled' &&
+      booking.fulfillment_status !== 'voucher_issued' &&
+      booking.payment_status !== 'paid';
+    if (esPendienteCobro) notificarHermesQA(booking);
 
     if (booking.room_id && !booking.room_name) {
       try {
@@ -544,17 +575,30 @@ const AdminBookingsPanel = () => {
       filterHotelName !== '' || filterDestination !== '' || filterCheckIn !== '' ||
       filterSource !== 'all';
 
-    // Tabs List Filter — si hay filtros activos, mostrar todo sin restricción de tab
+    // Tabs — lógica real basada en estado del documento
     let matchesTab = true;
     if (!hasActiveFilters) {
       if (activeTab === 'pending_validation') {
-        matchesTab = b.status === 'pending_validation';
+        // Confirmada por proveedor, pago pendiente o parcial
+        matchesTab = b.hotel_confirmation_no &&
+                     b.hotel_confirmation_no.trim() !== '' &&
+                     b.status !== 'cancelled' &&
+                     b.fulfillment_status !== 'voucher_issued' &&
+                     b.payment_status !== 'paid';
       } else if (activeTab === 'waiting_confirmation') {
-        matchesTab = b.status === 'waiting_confirmation';
+        // Sin localizador del proveedor
+        matchesTab = (!b.hotel_confirmation_no || b.hotel_confirmation_no.trim() === '') &&
+                     b.status !== 'cancelled' &&
+                     b.fulfillment_status !== 'voucher_issued';
+      } else if (activeTab === 'completed') {
+        // Pagado + localizador → listo para voucher
+        matchesTab = b.payment_status === 'paid' &&
+                     b.hotel_confirmation_no &&
+                     b.hotel_confirmation_no.trim() !== '' &&
+                     b.fulfillment_status !== 'voucher_issued' &&
+                     b.status !== 'cancelled';
       } else if (activeTab === 'voucher_issued') {
         matchesTab = b.fulfillment_status === 'voucher_issued';
-      } else if (activeTab === 'completed') {
-        matchesTab = b.fulfillment_status === 'completed';
       } else if (activeTab === 'cancelled') {
         matchesTab = b.status === 'cancelled';
       }
@@ -824,17 +868,35 @@ const AdminBookingsPanel = () => {
                         <div className="bg-slate-50/50 px-6 py-3 border-t border-slate-100 flex flex-wrap justify-between items-center gap-3">
                           {/* Izquierda: Raise Request & Core Type */}
                           <div className="flex items-center gap-3">
+                            {booking.fulfillment_status !== 'voucher_issued' && (
                             <Button
                               size="sm"
                               className="bg-[#0A3A6B] hover:bg-[#082D54] text-white font-bold text-xs"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSendRaceCondition(booking);
-                              }}
+                              onClick={(e) => { e.stopPropagation(); handleSendRaceCondition(booking); }}
                               disabled={sendingRaceCondition || isCancelled}
                             >
                               {sendingRaceCondition ? "Enviando..." : "Raise a Request 🔔"}
                             </Button>
+                            )}
+                            {booking.fulfillment_status === 'voucher_issued' && (
+                            <Button
+                              size="sm"
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1"
+                              onClick={(e) => { e.stopPropagation(); window.open(booking.voucher_pdf_url, '_blank'); }}
+                            >
+                              📄 Ver Voucher
+                            </Button>
+                            )}
+                            {booking.fulfillment_status === 'voucher_issued' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-blue-300 text-blue-700 hover:bg-blue-50 font-bold text-xs"
+                              onClick={(e) => { e.stopPropagation(); handleShareWhatsApp(booking); }}
+                            >
+                              💬 WhatsApp
+                            </Button>
+                            )}
                             
                             <Badge className={`font-semibold text-xs ${
                               coreType === 'Core 2' ? 'bg-purple-100 text-purple-800 hover:bg-purple-200 border-purple-200' : 
@@ -1282,7 +1344,7 @@ const AdminBookingsPanel = () => {
                     </div>
 
                     {/* Validation Warnings */}
-                    {!(selectedBooking.payment_status === 'deposit_received' || selectedBooking.payment_status === 'paid') ? (
+                    {selectedBooking.payment_status === 'unpaid' ? (
                       <div className="bg-amber-50 border border-amber-200 text-xs text-amber-800 p-3 rounded-xl flex items-center gap-2">
                         <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
                         <span>El depósito del 30% o pago total debe ser confirmado antes de liberar el voucher.</span>
@@ -1316,7 +1378,7 @@ const AdminBookingsPanel = () => {
                         onClick={handleReleaseVoucher}
                         disabled={
                           releasingVoucher || 
-                          !(selectedBooking.payment_status === 'deposit_received' || selectedBooking.payment_status === 'paid') ||
+                          selectedBooking.payment_status === 'unpaid' ||
                           !hotelConfirmationNo
                         }
                       >
