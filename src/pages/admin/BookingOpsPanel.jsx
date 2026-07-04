@@ -764,282 +764,233 @@ function TabPago({ bookings, onRegistered, onError }) {
 }
 
 // ════════════════════════════════════════════════════════════
-// TAB 4 — RECIBO
+// TAB 4 — RECIBO (rewrite limpio)
 // ════════════════════════════════════════════════════════════
 function TabRecibo({ bookings, hotels, initialBookingId = '' }) {
-  const { rate: EXCHANGE_RATE } = useExchangeRate()
   const [bookingId, setBookingId] = useState(initialBookingId)
-  const [payments, setPayments]   = useState([])
-  const [loaded, setLoaded]       = useState(false)
+  const [payments,  setPayments]  = useState([])
+  const [loading,   setLoading]   = useState(false)
+  const RATE = 61 // fallback seguro
 
-  const booking = bookings.find(b => b.id === bookingId)
-  const hotel   = hotels.find(h => h.id === booking?.hotel_id)
-  const total   = parseFloat(booking?.total_amount || 0)
-  const paid    = payments.reduce((s, p) => s + parseFloat(p.amount || 0), 0)
-  const balance = total - paid
-  const now     = new Date().toLocaleDateString('es-DO', { year: 'numeric', month: 'long', day: 'numeric' })
-
+  // Pre-seleccionar cuando viene del listado
   useEffect(() => {
-    if (!bookingId) { setPayments([]); setLoaded(false); return }
+    if (initialBookingId) setBookingId(initialBookingId)
+  }, [initialBookingId])
+
+  // Cargar pagos cuando cambia el booking
+  useEffect(() => {
+    if (!bookingId) { setPayments([]); return }
+    setLoading(true)
     supabaseAdmin
       .from('atlas_payments')
       .select('*')
       .eq('booking_id', bookingId)
       .order('created_at', { ascending: true })
-      .then(({ data }) => { setPayments(data || []); setLoaded(true) })
+      .then(({ data }) => { setPayments(data || []); setLoading(false) })
   }, [bookingId])
 
-  useEffect(() => {
-    if (initialBookingId && !bookingId) setBookingId(initialBookingId)
-  }, [initialBookingId])
+  const booking = bookings.find(b => b.id === bookingId) || null
+  const hotel   = booking ? (hotels.find(h => h.id === booking.hotel_id) || null) : null
+  const total   = parseFloat(booking?.total_amount || 0)
+  const paid    = payments.reduce((s, p) => s + parseFloat(p.amount || 0), 0)
+  const balance = total - paid
+  const fmt     = n => parseFloat(n || 0).toFixed(2)
+  const fmtDOP  = n => Math.round(parseFloat(n || 0) * RATE).toLocaleString('es-DO')
 
-  const buildReceiptHTML = () => {
+  const handleImprimir = () => {
+    if (!booking) return
     const pRows = payments.map(p =>
-      `<tr><td style="padding:6px 0;color:#666">${new Date(p.created_at).toLocaleDateString('es-DO')}</td>
-       <td style="padding:6px 0">${p.method || '—'}${p.reference ? ' · ' + p.reference : ''}</td>
-       <td style="padding:6px 0;text-align:right;color:#16a34a;font-weight:600">+$${fmt(p.amount)}</td></tr>`
+      `<tr>
+        <td style="padding:5px 0;color:#666">${new Date(p.created_at).toLocaleDateString('es-DO')}</td>
+        <td style="padding:5px 0">${p.method || '—'}</td>
+        <td style="padding:5px 0;text-align:right;color:#16a34a;font-weight:600">+$${fmt(p.amount)}</td>
+      </tr>`
     ).join('')
 
-    return `<html><head><title>Recibo ${booking.booking_reference}</title>
-<style>body{font-family:Arial,sans-serif;max-width:600px;margin:40px auto;color:#111;font-size:14px}
-hr{border:none;border-top:1px solid #e5e7eb;margin:16px 0}
-table{width:100%;border-collapse:collapse}.total{font-weight:700;font-size:16px}
-@media print{button{display:none}}</style></head><body>
-<div style="text-align:center;margin-bottom:20px;border-bottom:2px solid #111;padding-bottom:16px">
-  <h2 style="margin:0">ALIUN TRAVEL SRL</h2>
-  <p style="margin:4px 0;color:#666">Comprobante de reserva · ${now}</p>
-  <p style="margin:0;color:#666;font-size:12px">RNC: En trámite</p>
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>Recibo ${booking.booking_reference}</title>
+<style>
+  body{font-family:Arial,sans-serif;max-width:560px;margin:30px auto;color:#111;font-size:13px;padding:0 20px}
+  h2{margin:0 0 4px}
+  hr{border:none;border-top:1px solid #e5e7eb;margin:14px 0}
+  table{width:100%;border-collapse:collapse}
+  td{padding:5px 0;vertical-align:top}
+  td:first-child{color:#666;width:150px}
+  .total-box{background:#fff7e6;border:2px solid #b8860b;border-radius:8px;padding:10px 14px;margin:14px 0;display:flex;justify-content:space-between;align-items:center}
+  .conf{background:#f0fdf4;border:1px solid #16a34a;color:#16a34a;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;text-align:center;margin:8px 0}
+  @media print{.no-print{display:none}}
+  .btn{display:block;width:100%;background:#0a1628;color:white;border:none;padding:11px;border-radius:8px;font-weight:700;cursor:pointer;margin-top:14px;font-size:13px}
+</style></head><body>
+<div style="border-bottom:2px solid #0a1628;padding-bottom:14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-end">
+  <div><h2>ALIUN TRAVEL SRL</h2><p style="margin:0;color:#666;font-size:11px">Comprobante de Reserva</p></div>
+  <div style="text-align:right"><strong style="color:#b8860b">${booking.booking_reference}</strong><br/><span style="font-size:11px;color:#666">${new Date().toLocaleDateString('es-DO',{year:'numeric',month:'long',day:'numeric'})}</span></div>
 </div>
-<table><tr><td style="color:#666;width:160px">Referencia</td><td><strong>${booking.booking_reference}</strong></td></tr>
-<tr><td style="color:#666">Estado</td><td>${booking.status === 'confirmed' ? '✓ Confirmado' : '⏳ Pendiente'}</td></tr>
-<tr><td style="color:#666">Huésped</td><td>${booking.lead_guest_name || '—'}</td></tr>
-<tr><td style="color:#666">Teléfono</td><td>${booking.lead_phone || '—'}</td></tr>
-<tr><td style="color:#666">Email</td><td>${booking.lead_email || '—'}</td></tr></table>
+<div class="conf">${booking.status === 'confirmed' ? '✓ RESERVA CONFIRMADA' : '⏳ PENDIENTE DE CONFIRMACIÓN'}</div>
+<table>
+  <tr><td>Huésped</td><td><strong>${booking.lead_guest_name || '—'}</strong></td></tr>
+  <tr><td>Referencia</td><td>${booking.booking_reference}</td></tr>
+  ${booking.hotel_confirmation_no ? `<tr><td>Conf. proveedor</td><td>${booking.hotel_confirmation_no}</td></tr>` : ''}
+</table>
 <hr>
 <table>
-<tr><td style="color:#666;width:160px">${booking.booking_type === 'excursion' ? 'Excursión' : 'Hotel'}</td>
-    <td>${hotel?.name || booking.hotel_code || '—'}</td></tr>
-<tr><td style="color:#666">Plan / Hab.</td><td>${booking.room_name || 'Estándar'}</td></tr>
-<tr><td style="color:#666">Check-in</td><td><strong>${booking.check_in || '—'}</strong></td></tr>
-<tr><td style="color:#666">Check-out</td><td><strong>${booking.check_out || '—'}</strong></td></tr>
-<tr><td style="color:#666">PAX</td><td>${booking.adults || 0} adultos${booking.children > 0 ? ', ' + booking.children + ' niños' : ''}</td></tr>
-<tr><td style="color:#666">Total acordado</td><td><strong>USD $${fmt(total)}</strong></td></tr>
-<tr><td style="color:#666">Total en DOP</td><td>RD$ ${Math.round(total * EXCHANGE_RATE).toLocaleString()}</td></tr>
+  <tr><td>${booking.booking_type === 'excursion' ? 'Excursión' : 'Hotel'}</td><td><strong>${hotel?.name || booking.hotel_code || '—'}</strong></td></tr>
+  <tr><td>Habitación</td><td>${booking.room_name || 'Estándar'}</td></tr>
+  <tr><td>Check-in</td><td><strong>${booking.check_in || '—'}</strong></td></tr>
+  <tr><td>Check-out</td><td><strong>${booking.check_out || '—'}</strong></td></tr>
+  <tr><td>PAX</td><td>${booking.adults || 0} adultos${(booking.children > 0) ? ', ' + booking.children + ' niños' : ''}</td></tr>
 </table>
-${payments.length > 0 ? `<hr><h4 style="margin:0 0 8px">Historial de pagos</h4>
-<table>${pRows}</table>` : ''}
+${payments.length > 0 ? `<hr><p style="font-weight:700;margin:0 0 6px">Historial de pagos</p><table>${pRows}</table>` : ''}
 <hr>
 <table>
-<tr><td style="color:#666">Total</td><td style="text-align:right">$${fmt(total)}</td></tr>
-<tr><td style="color:#666">Pagado</td><td style="text-align:right;color:#16a34a">$${fmt(paid)}</td></tr>
-<tr class="total"><td>Saldo pendiente</td>
-    <td style="text-align:right;color:${balance > 0 ? '#dc2626' : '#16a34a'}">${balance > 0 ? '$' + fmt(balance) : '✓ Saldado'}</td></tr>
+  <tr><td>Total acordado</td><td style="text-align:right">$${fmt(total)} USD (RD$${fmtDOP(total)})</td></tr>
+  <tr><td>Abonado</td><td style="text-align:right;color:#16a34a">$${fmt(paid)} USD</td></tr>
 </table>
-<p style="text-align:center;color:#999;font-size:11px;margin-top:24px">
-Aliun Travel SRL · aliuntravelsrl.com · Generado ${now}</p>
+<div class="total-box">
+  <strong>SALDO PENDIENTE</strong>
+  <strong style="font-size:16px;color:${balance > 0 ? '#dc2626' : '#16a34a'}">${balance <= 0 ? '✓ Saldado' : '$' + fmt(balance) + ' USD'}</strong>
+</div>
+<p style="text-align:center;color:#999;font-size:10px;margin-top:16px">Aliun Travel SRL · aliuntravelsrl.com</p>
+<button class="btn no-print" onclick="window.print()">🖨️ Imprimir / Guardar como PDF</button>
 </body></html>`
-  }
-
-  // ── Generar documento oficial via WF según estado ────────────
-  const getDocType = () => {
-    if (balance <= 0 && paid > 0) return 'voucher'       // Pago total → Voucher
-    if (booking?.status === 'confirmed') return 'confirmacion'  // Confirmada con saldo → Confirmación
-    return 'cotizacion'                                   // Sin pagos → Cotización
-  }
-
-  const handleGenerarDocumento = async () => {
-    if (!booking) return
-    const nat     = booking.nationality || 'DO'
-    const cur     = getCurrency(nat)
-    const docType = getDocType()
-    const isExcursion = booking.booking_type === 'excursion'
-
-    // Extraer datos de la excursión desde special_requests (guardado en el submit)
-    const sr = booking.special_requests || {}
-
-    let payload, wfUrl
-
-    if (isExcursion) {
-      // ── EXCURSIÓN → WF-EXCURSION-DOC-v1 ──────────────────
-      wfUrl = `${N8N_BASE}/aliun-excursion-doc`
-      payload = {
-        booking_ref:      booking.booking_reference,
-        excursion_slug:   booking.hotel_code || sr.excursion_slug || '',
-        plan_id:          sr.plan_id || '',
-        tipo_documento:   docType === 'voucher' ? 'VOUCHER'
-                        : docType === 'confirmacion' ? 'CONFIRMACION'
-                        : 'COTIZACION',
-        cliente_nombre:   booking.lead_guest_name,
-        cliente_telefono: booking.lead_phone || '',
-        email:            booking.lead_email || '',
-        fecha:            booking.check_in,
-        pax_adultos:      booking.adults || 2,
-        pax_ninos:        booking.children || 0,
-        nationality:      nat,
-        total_dop:        Math.round(total * EXCHANGE_RATE),
-        deposito_dop:     Math.round(paid * EXCHANGE_RATE),
-        saldo_dop:        Math.round(balance * EXCHANGE_RATE),
-      }
-    } else {
-      // ── HOTEL → WF existentes ─────────────────────────────
-      const hotelSlug = hotel?.slug || booking.hotel_code || ''
-      wfUrl = docType === 'voucher' ? WF_VOUCHER : WF_CONFIRMACION
-      payload = {
-        booking_ref:      booking.booking_reference,
-        id_reserva:       booking.booking_reference,
-        cotizacion_id:    booking.booking_reference,
-        hotel_slug:       hotelSlug,
-        hotel_name:       hotel?.name || '',
-        cliente_nombre:   booking.lead_guest_name,
-        cliente_telefono: booking.lead_phone || '',
-        cliente_email:    booking.lead_email || '',
-        check_in:         booking.check_in,
-        check_out:        booking.check_out,
-        habitacion:       booking.room_name || 'Estándar',
-        tipo_hab:         booking.room_name || 'Estándar',
-        regimen:          'Todo Incluido',
-        pax_adultos:      booking.adults || 2,
-        pax_ninos:        booking.children || 0,
-        tipo_documento:   docType === 'confirmacion' ? 'CONFIRMACION' : 'COTIZACION',
-        precio_total_usd: total,
-        precio_total_dop: Math.round(total * EXCHANGE_RATE),
-        deposito_usd:     paid,
-        deposito_dop:     Math.round(paid * EXCHANGE_RATE),
-        saldo_usd:        balance,
-        saldo_dop:        Math.round(balance * EXCHANGE_RATE),
-        moneda:           cur,
-        provider_locator: booking.hotel_confirmation_no || booking.booking_reference,
-      }
-    }
 
     try {
-      const res  = await fetch(wfUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-      const data = await res.json()
-      if (data.pdf_url || data.landing_url) {
-        window.open(data.pdf_url || data.landing_url, '_blank')
-        alert(`✅ ${docType === 'voucher' ? 'Voucher' : docType === 'confirmacion' ? 'Confirmación' : 'Cotización'} generado y enviado a Telegram.`)
-      } else {
-        alert('⚠️ Documento generado. Revisa Telegram para el PDF.')
-      }
-    } catch (e) {
-      alert('Error conectando con el flujo de documentos: ' + e.message)
-    }
-  }
-
-  const handlePrint = () => {
-    if (!booking) return
-    try {
-      const html = buildReceiptHTML()
       const blob = new Blob([html], { type: 'text/html' })
       const url  = URL.createObjectURL(blob)
       const w    = window.open(url, '_blank')
       if (!w) {
-        // Fallback si popup blocker activo: descargar como HTML
         const a = document.createElement('a')
         a.href = url
         a.download = `recibo-${booking.booking_reference}.html`
         a.click()
       } else {
-        setTimeout(() => { w.print(); URL.revokeObjectURL(url) }, 800)
+        setTimeout(() => URL.revokeObjectURL(url), 8000)
       }
-    } catch (e) {
-      alert('Error al generar recibo: ' + e.message)
+    } catch (err) {
+      alert('Error: ' + err.message)
     }
   }
 
-  const handleCopy = () => {
-    if (!booking) return
-    const text = `ALIUN TRAVEL SRL — RECIBO DE PAGO\n` +
-      `Ref: ${booking.booking_reference}\n` +
-      `Huésped: ${booking.lead_guest_name}\n` +
-      `Hotel/Excursión: ${hotel?.name || booking.hotel_code}\n` +
-      `Check-in: ${booking.check_in} · Check-out: ${booking.check_out}\n` +
-      `Total: $${fmt(total)} USD (RD$${Math.round(total * EXCHANGE_RATE).toLocaleString()})\n` +
-      `Pagado: $${fmt(paid)} · Saldo: $${fmt(balance)}\n` +
-      `Generado: ${now} · aliuntravelsrl.com`
-    navigator.clipboard.writeText(text).then(() => alert('Copiado al portapapeles'))
-  }
-
   return (
-    <div className="max-w-lg space-y-5">
-      <div className="flex gap-3 items-end">
-        <Field label="Seleccionar reserva" className="flex-1">
-          <select className={selectCls} value={bookingId} onChange={e => setBookingId(e.target.value)}>
-            <option value="">Seleccionar...</option>
-            {bookings.map(b => (
-              <option key={b.id} value={b.id}>
-                {b.booking_reference} · {b.lead_guest_name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <button onClick={handlePrint} disabled={!loaded} className={btnSecondary}>🖨 Imprimir</button>
-        <button onClick={handleCopy} disabled={!loaded} className={btnSecondary}>📋 Copiar</button>
-        {loaded && booking && (() => {
-          const isExc = booking.booking_type === 'excursion'
-          const dt = getDocType()
-          const label = isExc
-            ? (dt === 'voucher' ? '🌊 Voucher Excursión' : dt === 'confirmacion' ? '✅ Confirmación Exc.' : '📄 Cotización Exc.')
-            : (dt === 'voucher' ? '🏨 Voucher Hotel' : dt === 'confirmacion' ? '✅ Confirmación' : '📄 Cotización')
-          return (
-            <button
-              onClick={handleGenerarDocumento}
-              className="px-4 py-2 rounded-lg text-sm font-bold bg-yellow-600 hover:bg-yellow-500 text-white transition"
-            >
-              {label}
-            </button>
-          )
-        })()}
+    <div className="max-w-xl space-y-5">
+
+      {/* Selector */}
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-gray-400 uppercase tracking-wide">Reserva</label>
+        <select
+          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"
+          value={bookingId}
+          onChange={e => setBookingId(e.target.value)}
+        >
+          <option value="">— Seleccionar reserva —</option>
+          {bookings.map(b => (
+            <option key={b.id} value={b.id}>
+              {b.booking_reference} · {b.lead_guest_name}
+            </option>
+          ))}
+        </select>
       </div>
 
-      {loaded && booking && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 text-sm space-y-3">
-          <div className="text-center border-b border-gray-700 pb-4">
-            <p className="font-semibold text-white text-base">ALIUN TRAVEL SRL</p>
-            <p className="text-gray-400 text-xs mt-1">Comprobante de reserva · {now}</p>
+      {/* Estado vacío */}
+      {!bookingId && (
+        <p className="text-center py-10 text-gray-500 text-sm">
+          Selecciona una reserva para generar el recibo
+        </p>
+      )}
+
+      {/* Loading */}
+      {bookingId && loading && (
+        <p className="text-center py-6 text-gray-500 text-sm animate-pulse">Cargando datos...</p>
+      )}
+
+      {/* Preview recibo */}
+      {bookingId && !loading && booking && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4 text-sm">
+
+          {/* Header */}
+          <div className="border-b border-gray-700 pb-3 flex justify-between items-start">
+            <div>
+              <p className="font-bold text-white text-base">ALIUN TRAVEL SRL</p>
+              <p className="text-gray-400 text-xs mt-0.5">Comprobante de reserva</p>
+            </div>
+            <div className="text-right">
+              <p className="font-bold text-amber-400">{booking.booking_reference}</p>
+              <p className="text-gray-500 text-xs">{new Date().toLocaleDateString('es-DO')}</p>
+            </div>
           </div>
-          <InfoGrid data={[
-            ['Referencia', booking.booking_reference],
-            ['Huésped', booking.lead_guest_name],
-            ['Hotel/Excursión', hotel?.name || booking.hotel_code || '—'],
-            ['Plan / Hab.', booking.room_name || 'Estándar'],
-            ['Check-in', booking.check_in],
-            ['Check-out', booking.check_out],
-            ['Total USD', `$${fmt(total)}`],
-            ['Total DOP', `RD$${Math.round(total * EXCHANGE_RATE).toLocaleString()}`],
-          ]} />
+
+          {/* Estado */}
+          <div className={`text-center text-xs font-bold py-1.5 rounded-lg ${booking.status === 'confirmed' ? 'bg-emerald-900/40 text-emerald-400' : 'bg-amber-900/40 text-amber-400'}`}>
+            {booking.status === 'confirmed' ? '✓ RESERVA CONFIRMADA' : '⏳ PENDIENTE DE CONFIRMACIÓN'}
+          </div>
+
+          {/* Datos cliente */}
+          <div className="space-y-1.5">
+            {[
+              ['Huésped', booking.lead_guest_name],
+              ['Hotel',    hotel?.name || booking.hotel_code || '—'],
+              ['Habitación', booking.room_name || 'Estándar'],
+              ['Check-in',  booking.check_in],
+              ['Check-out', booking.check_out],
+              ['PAX', `${booking.adults || 0} adultos${booking.children > 0 ? ', ' + booking.children + ' niños' : ''}`],
+              ...(booking.hotel_confirmation_no ? [['Conf. proveedor', booking.hotel_confirmation_no]] : [])
+            ].map(([k, v]) => (
+              <div key={k} className="flex justify-between">
+                <span className="text-gray-400">{k}</span>
+                <span className="text-white font-medium text-right max-w-[55%]">{v}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Pagos */}
           {payments.length > 0 && (
             <>
-              <hr className="border-gray-800" />
-              <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Historial de pagos</p>
+              <hr className="border-gray-700" />
+              <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Historial de pagos</p>
               {payments.map((p, i) => (
                 <div key={i} className="flex justify-between text-xs">
-                  <span className="text-gray-400">{new Date(p.created_at).toLocaleDateString('es-DO')} · {p.method}</span>
-                  <span className="text-emerald-400 font-medium">+${fmt(p.amount)}</span>
+                  <span className="text-gray-400">{new Date(p.created_at).toLocaleDateString('es-DO')} · {p.method || '—'}</span>
+                  <span className="text-emerald-400 font-semibold">+${fmt(p.amount)}</span>
                 </div>
               ))}
             </>
           )}
-          <hr className="border-gray-800" />
-          <div className="space-y-1">
-            <Row label="Total" value={`$${fmt(total)}`} />
-            <Row label="Pagado" value={`$${fmt(paid)}`} valueClass="text-emerald-400" />
-            <Row
-              label="Saldo pendiente"
-              value={balance > 0 ? `$${fmt(balance)}` : '✓ Saldado'}
-              valueClass={balance > 0 ? 'text-red-400 font-semibold' : 'text-emerald-400 font-semibold'}
-            />
+
+          {/* Totales */}
+          <hr className="border-gray-700" />
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-400">Total acordado</span>
+              <span className="text-white">${fmt(total)} USD</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-400">Abonado</span>
+              <span className="text-emerald-400 font-semibold">${fmt(paid)} USD</span>
+            </div>
           </div>
+          <div className={`flex justify-between items-center p-3 rounded-lg font-bold ${balance <= 0 ? 'bg-emerald-900/30 border border-emerald-800' : 'bg-amber-900/30 border border-amber-800'}`}>
+            <span className="text-sm">Saldo pendiente</span>
+            <span className={`text-base ${balance <= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {balance <= 0 ? '✓ Saldado' : `$${fmt(balance)} USD`}
+            </span>
+          </div>
+
+          {/* Botón imprimir */}
+          <button
+            onClick={handleImprimir}
+            className="w-full py-2.5 rounded-lg bg-white text-gray-950 font-bold text-sm hover:bg-gray-100 transition"
+          >
+            🖨️ Imprimir / Descargar PDF
+          </button>
         </div>
       )}
 
-      {!bookingId && (
-        <p className="text-center py-10 text-gray-500 text-sm">Selecciona una reserva para generar el recibo</p>
+      {/* Booking no encontrado */}
+      {bookingId && !loading && !booking && (
+        <p className="text-center py-6 text-gray-500 text-sm">
+          Reserva no encontrada. Intenta recargar la página.
+        </p>
       )}
+
     </div>
   )
 }
