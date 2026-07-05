@@ -15,6 +15,7 @@ import {
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { supabase } from '@/lib/customSupabaseClient';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import FacturadorPanel from './FacturadorPanel';
 import { useExchangeRate, EXCHANGE_RATE_FALLBACK } from '@/hooks/useExchangeRate';
 
@@ -219,13 +220,11 @@ const AdminBookingsPanel = () => {
       });
       // Actualizar fulfillment_status en DB
       const { supabase: sb } = await import('@/lib/customSupabaseClient').catch(() => ({ supabase: null }));
-      if (sb) {
-        await sb.from('bookings').update({
-          fulfillment_status: 'voucher_issued',
-          voucher_sent_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }).eq('id', booking.id);
-      }
+      await supabaseAdmin.from('bookings').update({
+        fulfillment_status: 'voucher_issued',
+        voucher_sent_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq('id', booking.id);
       loadBookings();
     } catch (e) {
       console.error('Error emitiendo voucher:', e);
@@ -259,7 +258,7 @@ const AdminBookingsPanel = () => {
     const newPaidUSD  = paidUSD + amountUSD;
     const newStatus   = newPaidUSD >= totalUSD ? 'paid' : 'partial';
 
-    const { error: e1 } = await supabase.from('atlas_payments').insert({
+    const { error: e1 } = await supabaseAdmin.from('atlas_payments').insert({
       booking_id:   selectedBooking.id,
       amount:       amountUSD,
       currency:     'USD',
@@ -276,7 +275,7 @@ const AdminBookingsPanel = () => {
     if (e1) { setAbonoLoading(false); setAbonoError('Error: ' + e1.message); return; }
 
     const newDepositDOP = (parseFloat(selectedBooking.deposit_amount_dop || 0)) + amountDOP;
-    await supabase.from('bookings').update({
+    await supabaseAdmin.from('bookings').update({
       payment_status:     newStatus,
       deposit_amount:     parseFloat((paidUSD + amountUSD).toFixed(2)),
       deposit_amount_dop: newDepositDOP,
@@ -635,7 +634,7 @@ const AdminBookingsPanel = () => {
     if (!window.confirm(`¿Estás seguro de que deseas cancelar la reserva ${booking.booking_reference}?`)) return;
     
     try {
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from('bookings')
         .update({
           status: 'cancelled',
