@@ -127,43 +127,105 @@ export default function PaymentGatewayPage() {
     }
   };
 
-  // ── Generar factura individual desde PaymentGatewayPage ────────
+  // ── Generar documento según estado de la reserva ─────────────────
+  // 1. Sin abono  → Cotización     (WF-COTIZACION-GOTENBERG-v2, aliun-cotizacion-individual)
+  // 2. Con abono  → Estado Cuenta  (WF-RECIBO-ABONO-v1, aliun-recibo-abono)
+  // 3. Pagado     → Voucher        (WF-VOUCHER-GOTENBERG-v1, aliun-voucher)
   const generarFactura = async () => {
     if (!booking) return;
     setGenerandoDoc(true);
     setDocOk(false);
     try {
-      const isDOP = booking.currency === 'DOP';
-      const total = parseFloat(booking.total_amount || 0);
-      const payload = {
-        cotizacion_id:    booking.booking_reference,
-        hotel_slug:       booking.hotel_code || booking.hotels_master?.slug || '',
-        hotel_name:       booking.hotels_master?.name || booking.hotel_code || '',
-        cliente_nombre:   booking.lead_guest_name,
-        check_in:         booking.check_in,
-        check_out:        booking.check_out,
-        pax_adultos:      booking.adults || 2,
-        pax_ninos:        booking.children || 0,
-        habitaciones:     1,
-        plan_alimenticio: 'Todo Incluido',
-        tipo_hab:         booking.room_name || 'Estándar',
-        precio_total_dop: isDOP ? total : 0,
-        precio_total_usd: isDOP ? 0 : total,
-        moneda:           isDOP ? 'DOP' : 'USD',
-        tipo_documento:   isPaid ? 'CONFIRMACION' : 'COTIZACION',
-        deposito_usd:     isDOP ? 0 : paidUSD,
-        deposito_dop:     isDOP ? paidDisplay : 0,
-        saldo_usd:        isDOP ? 0 : Math.max(0, total - paidUSD),
-        saldo_dop:        isDOP ? Math.max(0, totalDisplay - paidDisplay) : 0,
-      };
-      await fetch('https://n8n-n8n.xaruuo.easypanel.host/webhook/aliun-cotizacion-individual', {
+      const isDOP  = booking.currency === 'DOP';
+      const total  = parseFloat(booking.total_amount || 0);
+      const slug   = booking.hotel_code || booking.hotels_master?.slug || '';
+      const nights = booking.nights || Math.round((new Date(booking.check_out) - new Date(booking.check_in)) / 86400000);
+
+      let webhook, payload;
+
+      if (isPaid) {
+        // ── VOUCHER — pagado completo, sin datos contables ─────────
+        webhook = 'https://n8n-n8n.xaruuo.easypanel.host/webhook/aliun-voucher';
+        payload = {
+          id_reserva:       booking.booking_reference,
+          hotel_slug:       slug,
+          nombre:           booking.lead_guest_name,
+          lead_guest_name:  booking.lead_guest_name,
+          lead_phone:       booking.lead_phone || '',
+          check_in:         booking.check_in,
+          check_out:        booking.check_out,
+          noches:           nights,
+          nights:           nights,
+          adults:           booking.adults || 2,
+          children:         booking.children || 0,
+          room_name:        booking.room_name || 'Estándar',
+          habitacion:       booking.room_name || 'Estándar',
+          regimen:          'Todo Incluido',
+          provider_locator: booking.hotel_confirmation_no || 'PENDIENTE',
+        };
+      } else if (paidUSD > 0) {
+        // ── ESTADO DE CUENTA — hay abono registrado ────────────────
+        webhook = 'https://n8n-n8n.xaruuo.easypanel.host/webhook/aliun-recibo-abono';
+        payload = {
+          booking_reference:     booking.booking_reference,
+          lead_guest_name:       booking.lead_guest_name,
+          lead_phone:            booking.lead_phone || '',
+          hotel_name:            booking.hotels_master?.name || booking.hotel_code || '',
+          hotel_zone:            booking.hotels_master?.zone || '',
+          check_in:              booking.check_in,
+          check_out:             booking.check_out,
+          adults:                booking.adults || 2,
+          children:              booking.children || 0,
+          room_name:             booking.room_name || 'Estándar',
+          meal_plan:             'Todo Incluido',
+          hotel_confirmation_no: booking.hotel_confirmation_no || '',
+          total:                 totalDisplay,
+          total_amount:          totalDisplay,
+          abono:                 paidDisplay,
+          paid:                  paidDisplay,
+          currency:              isDOP ? 'DOP' : 'USD',
+          status:                booking.status || 'confirmed',
+          payments:              payments.map(p => ({
+            method:     p.method || 'transferencia',
+            amount:     isDOP ? Math.round(parseFloat(p.amount) * rate) : parseFloat(p.amount),
+            currency:   isDOP ? 'DOP' : 'USD',
+            created_at: p.created_at,
+          })),
+        };
+      } else {
+        // ── COTIZACIÓN — sin abono ─────────────────────────────────
+        webhook = 'https://n8n-n8n.xaruuo.easypanel.host/webhook/aliun-cotizacion-individual';
+        payload = {
+          cotizacion_id:    booking.booking_reference,
+          hotel_slug:       slug,
+          hotel_name:       booking.hotels_master?.name || booking.hotel_code || '',
+          cliente_nombre:   booking.lead_guest_name,
+          check_in:         booking.check_in,
+          check_out:        booking.check_out,
+          pax_adultos:      booking.adults || 2,
+          pax_ninos:        booking.children || 0,
+          habitaciones:     1,
+          plan_alimenticio: 'Todo Incluido',
+          tipo_hab:         booking.room_name || 'Estándar',
+          precio_total_dop: isDOP ? total : 0,
+          precio_total_usd: isDOP ? 0 : total,
+          moneda:           isDOP ? 'DOP' : 'USD',
+          tipo_documento:   'COTIZACION',
+          deposito_usd:     0,
+          deposito_dop:     0,
+          saldo_usd:        isDOP ? 0 : total,
+          saldo_dop:        isDOP ? total : 0,
+        };
+      }
+
+      await fetch(webhook, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       setDocOk(true);
     } catch(e) {
-      console.error('Error generando factura:', e);
+      console.error('Error generando documento:', e);
     } finally {
       setGenerandoDoc(false);
     }
@@ -451,27 +513,15 @@ export default function PaymentGatewayPage() {
                 opacity: generandoDoc ? 0.6 : 1,
               }}
             >
-              {generandoDoc ? '⏳ Generando...' : isPaid ? '📄 Confirmación' : '📋 Cotización'}
-            </button>
-            <button
-              onClick={generarRecibo}
-              disabled={generandoRecibo || paidUSD <= 0}
-              title={paidUSD <= 0 ? 'Registra un abono primero' : 'Estado de cuenta con abono y saldo pendiente'}
-              style={{
-                flex: 1, padding: '12px 16px', borderRadius: 12,
-                fontWeight: 800, fontSize: 13,
-                cursor: (generandoRecibo || paidUSD <= 0) ? 'not-allowed' : 'pointer',
-                border: `1.5px solid #3B82F6`,
-                background: paidUSD <= 0 ? '#1E2D3D' : C.navy,
-                color: paidUSD <= 0 ? '#475569' : '#3B82F6',
-                letterSpacing: 1, transition: 'all .2s',
-                opacity: generandoRecibo ? 0.6 : 1,
-              }}
-            >
-              {generandoRecibo ? '⏳ Generando...' : '🧾 Estado de Cuenta'}
+              {generandoDoc ? '⏳ Generando...' :
+                isPaid    ? '🏨 Voucher Hotel' :
+                paidUSD > 0 ? '🧾 Estado de Cuenta' :
+                              '📋 Cotización'}
             </button>
           </div>
-          {(docOk || reciboOk) && (
+          {docOk && (
+          </div>
+          {docOk && (
             <div style={{
               marginTop: 8, padding: '10px 14px', borderRadius: 10,
               background: '#05966915', border: '1px solid #05966940',
