@@ -72,6 +72,50 @@ export default function PaymentGatewayPage() {
   const [form,      setForm]      = useState({ amount: '', reference: '', bank: '', payer_name: '', date: '', remarks: '' });
   const [submitting, setSubmitting] = useState(false);
   const [submitOk,  setSubmitOk]  = useState(false);
+  const [generandoDoc, setGenerandoDoc] = useState(false);
+  const [docOk, setDocOk] = useState(false);
+
+  // ── Generar factura individual desde PaymentGatewayPage ────────
+  const generarFactura = async () => {
+    if (!booking) return;
+    setGenerandoDoc(true);
+    setDocOk(false);
+    try {
+      const isDOP = booking.currency === 'DOP';
+      const total = parseFloat(booking.total_amount || 0);
+      const payload = {
+        cotizacion_id:    booking.booking_reference,
+        hotel_slug:       booking.hotel_code || booking.hotels_master?.slug || '',
+        hotel_name:       booking.hotels_master?.name || booking.hotel_code || '',
+        cliente_nombre:   booking.lead_guest_name,
+        check_in:         booking.check_in,
+        check_out:        booking.check_out,
+        pax_adultos:      booking.adults || 2,
+        pax_ninos:        booking.children || 0,
+        habitaciones:     1,
+        plan_alimenticio: 'Todo Incluido',
+        tipo_hab:         booking.room_name || 'Estándar',
+        precio_total_dop: isDOP ? total : 0,
+        precio_total_usd: isDOP ? 0 : total,
+        moneda:           isDOP ? 'DOP' : 'USD',
+        tipo_documento:   isPaid ? 'CONFIRMACION' : 'COTIZACION',
+        deposito_usd:     isDOP ? 0 : paidUSD,
+        deposito_dop:     isDOP ? paidDisplay : 0,
+        saldo_usd:        isDOP ? 0 : Math.max(0, total - paidUSD),
+        saldo_dop:        isDOP ? Math.max(0, totalDisplay - paidDisplay) : 0,
+      };
+      await fetch('https://n8n-n8n.xaruuo.easypanel.host/webhook/aliun-cotizacion-individual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      setDocOk(true);
+    } catch(e) {
+      console.error('Error generando factura:', e);
+    } finally {
+      setGenerandoDoc(false);
+    }
+  };
   const [submitErr, setSubmitErr] = useState(null);
 
   // ── Cargar reserva y pagos ─────────────────────────────────────
@@ -341,6 +385,36 @@ export default function PaymentGatewayPage() {
               </table>
             )}
           </div>
+
+          {/* ── BOTÓN GENERAR FACTURA ── */}
+          <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
+            <button
+              onClick={generarFactura}
+              disabled={generandoDoc}
+              style={{
+                flex: 1, padding: '12px 16px', borderRadius: 12,
+                fontWeight: 800, fontSize: 13, cursor: generandoDoc ? 'wait' : 'pointer',
+                border: `1.5px solid ${C.gold}`, background: C.navy, color: C.gold,
+                letterSpacing: 1, transition: 'all .2s',
+                opacity: generandoDoc ? 0.6 : 1,
+              }}
+            >
+              {generandoDoc
+                ? '⏳ Generando...'
+                : isPaid
+                  ? '📄 Exportar Confirmación'
+                  : '📋 Exportar Cotización'}
+            </button>
+          </div>
+          {docOk && (
+            <div style={{
+              marginTop: 8, padding: '10px 14px', borderRadius: 10,
+              background: '#05966915', border: '1px solid #05966940',
+              fontSize: 12, color: '#059669', textAlign: 'center'
+            }}>
+              ✅ Documento generado — revisa Telegram {'{'}683265740{'}'}
+            </div>
+          )}
         </div>
 
         {/* ── COL DERECHA ───────────────────────────────────────── */}
