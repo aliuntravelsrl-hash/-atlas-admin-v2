@@ -85,10 +85,11 @@ const METODOS = [...METODOS_DO, ...METODOS_USD]
 // COMPONENTE PRINCIPAL
 // ════════════════════════════════════════════════════════════
 export default function BookingOpsPanel() {
-  const [activeTab, setActiveTab] = useState('nueva')
-  const [toast, setToast]         = useState(null)
-  const [bookings, setBookings]   = useState([])
-  const [hotels, setHotels]       = useState([])
+  const [activeTab, setActiveTab]           = useState('nueva')
+  const [toast, setToast]                   = useState(null)
+  const [bookings, setBookings]             = useState([])
+  const [hotels, setHotels]                 = useState([])
+  const [reciboBookingId, setReciboBookingId] = useState('')
 
   // ── Tasa de cambio dinámica desde exchange_rates ──────────────
   const { rate: EXCHANGE_RATE } = useExchangeRate()
