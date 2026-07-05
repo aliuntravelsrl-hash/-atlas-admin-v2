@@ -190,8 +190,8 @@ const AdminBookingsPanel = () => {
     if (emitiendo) return;
     setEmitiendo(booking.id);
     try {
-      // WF-VOUCHER-GOTENBERG-v1 — webhook: aliun-voucher-emitir
-      const res = await fetch('https://n8n-n8n.xaruuo.easypanel.host/webhook/aliun-voucher-emitir', {
+      // WF-VOUCHER-GOTENBERG-v1 — webhook: aliun-voucher
+      const res = await fetch('https://n8n-n8n.xaruuo.easypanel.host/webhook/aliun-voucher', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
