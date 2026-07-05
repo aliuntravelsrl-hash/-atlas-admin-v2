@@ -1461,6 +1461,100 @@ const AdminBookingsPanel = () => {
                     </Button>
                   </div>
                 </div>
+
+                {/* ── PASO 3: INFORMACIÓN BANCARIA PARA COBRO AL CLIENTE ── */}
+                <div className="border border-slate-200 rounded-2xl overflow-hidden mt-2">
+                  <div className="bg-[#0A1628] px-5 py-3 flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold text-[#C19A6B] text-sm tracking-wide">
+                        Paso 3 — Datos para Transferencia al Cliente
+                      </h4>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Comparte estos datos para recibir el pago de la reserva
+                      </p>
+                    </div>
+                    <span className="text-xs bg-emerald-700 text-white px-2 py-1 rounded font-bold">ACTIVO</span>
+                  </div>
+
+                  {/* Selector de moneda */}
+                  <div className="px-5 pt-4 pb-2 bg-slate-50 border-b border-slate-200">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                      Moneda de pago: <span className="text-[#C19A6B]">
+                        {selectedBooking?.nationality === 'DO' || selectedBooking?.currency === 'DOP' ? 'DOP' : 'USD'}
+                      </span>
+                    </p>
+                  </div>
+
+                  {/* Cuentas bancarias */}
+                  <div className="divide-y divide-slate-100">
+                    {/* Cuenta DOP */}
+                    {(selectedBooking?.nationality === 'DO' || selectedBooking?.currency === 'DOP') && (
+                    <div className="px-5 py-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-lg">🇩🇴</span>
+                        <span className="text-xs font-black text-slate-700 uppercase tracking-wider">Pesos Dominicanos (DOP)</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                        {[
+                          ['Banco',           'Banco Popular Dominicano'],
+                          ['Nombre cuenta',   'Aliun Travel SRL'],
+                          ['N° de cuenta',    '812-345678-9'],
+                          ['Tipo',            'Cuenta Corriente'],
+                          ['RNC',             '1-32-XXXXX-X'],
+                        ].map(([label, value]) => (
+                          <div key={label} className="flex flex-col">
+                            <span className="text-slate-400 font-semibold">{label}</span>
+                            <span className="font-bold text-slate-800 mt-0.5 select-all">{value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    )}
+
+                    {/* Cuenta USD */}
+                    {(selectedBooking?.nationality !== 'DO' && selectedBooking?.currency !== 'DOP') && (
+                    <div className="px-5 py-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-lg">🇺🇸</span>
+                        <span className="text-xs font-black text-slate-700 uppercase tracking-wider">US Dollars (USD)</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                        {[
+                          ['Bank Name',       'Banco Popular Dominicano'],
+                          ['Account Name',    'Aliun Travel SRL'],
+                          ['Account Number',  '812-345678-9 USD'],
+                          ['SWIFT Code',      'BPDHDOMX'],
+                          ['IBAN',            'DO00BPDH0000812345678'],
+                          ['Branch',          'Santo Domingo, RD'],
+                        ].map(([label, value]) => (
+                          <div key={label} className="flex flex-col">
+                            <span className="text-slate-400 font-semibold">{label}</span>
+                            <span className="font-bold text-slate-800 mt-0.5 select-all">{value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    )}
+
+                    {/* Mostrar ambas si hay dudas de moneda */}
+                    {!selectedBooking?.nationality && !selectedBooking?.currency && (
+                    <div className="px-5 py-3 bg-amber-50">
+                      <p className="text-xs text-amber-700 font-semibold">
+                        ⚠️ Reserva sin moneda definida — registra la nacionalidad del cliente para mostrar la cuenta correcta.
+                      </p>
+                    </div>
+                    )}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="bg-slate-50 px-5 py-3 border-t border-slate-200">
+                    <p className="text-[10px] text-slate-400 text-center">
+                      Aliun Travel SRL · aliuntravelgroup@gmail.com · +1 829 964 8443
+                      {' · '}Ref de pago: <strong>{selectedBooking?.booking_reference}</strong>
+                    </p>
+                  </div>
+                </div>
+
               </TabsContent>
 
               {/* TAB: FACTURACIÓN */}
