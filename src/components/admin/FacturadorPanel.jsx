@@ -359,7 +359,7 @@ export default function FacturadorPanel({ booking }) {
   // ── Input helper ──────────────────────────────────────────────────
   const Field = ({ label, children }) => (
     <div>
-      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">{label}</label>
+      <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">{label}</label>
       {children}
     </div>
   );
@@ -369,14 +369,14 @@ export default function FacturadorPanel({ booking }) {
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-yellow-600"
+      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-600"
     />
   );
   const Select = ({ value, onChange, options }) => (
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
-      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-yellow-600"
+      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-600"
     >
       {options.map(o => <option key={o.value || o} value={o.value || o}>{o.label || o}</option>)}
     </select>
@@ -384,7 +384,7 @@ export default function FacturadorPanel({ booking }) {
 
   // ── Render ────────────────────────────────────────────────────────
   return (
-    <div className="space-y-5 py-2">
+    <div className="space-y-3 py-1">
 
       {/* Selector de modo */}
       <div className="flex gap-2">
@@ -409,8 +409,8 @@ export default function FacturadorPanel({ booking }) {
 
       {/* ── MODO INDIVIDUAL ────────────────────────────────────────── */}
       {modo === 'individual' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
             <Field label="N° Factura">
               <Input value={indiv.factura_num} onChange={v => setIndiv(p => ({...p, factura_num: v}))} placeholder="FAC-2026-..." />
             </Field>
@@ -491,7 +491,7 @@ export default function FacturadorPanel({ booking }) {
             🧾 Genera el <strong>Estado de Cuenta con Depósito</strong> — confirma el abono recibido,
             calcula el saldo pendiente y lo envía por Gmail + Telegram.
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             <Field label="Referencia Reserva *">
               <Input
                 value={recibo.booking_reference}
@@ -541,7 +541,7 @@ export default function FacturadorPanel({ booking }) {
       {/* ── MODO GRUPAL ────────────────────────────────────────────── */}
       {modo === 'grupal' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             <Field label="N° Factura">
               <Input value={grupal.factura_num} onChange={v => setGrupal(p => ({...p, factura_num: v}))} placeholder="FAC-GROUP-..." />
             </Field>
@@ -622,7 +622,7 @@ export default function FacturadorPanel({ booking }) {
                                   generarGrupal
         }
         disabled={generando}
-        className="w-full py-3 rounded-xl font-black text-sm uppercase tracking-wider transition"
+        className="w-full py-2 rounded-xl font-black text-sm uppercase tracking-wider transition"
         style={{ background: generando ? '#334155' : NAVY, border: `1.5px solid ${GOLD}`, color: GOLD }}
       >
         {generando ? '⏳ Generando PDF...' : 
