@@ -186,6 +186,13 @@ const AdminBookingsPanel = () => {
 
   // ── Emitir voucher de entrada al hotel ──────────────────────────
   const [emitiendo, setEmitiendo] = useState(false);
+
+  // ── Estado inline de abono (dentro del modal de detalle) ─────────
+  const [abono, setAbono]         = useState({ amount: '', method: '', reference: '', payer_name: '' });
+  const [abonoLoading, setAbonoLoading] = useState(false);
+  const [abonoPayments, setAbonoPayments] = useState([]);
+  const [abonoError, setAbonoError] = useState(null);
+  const [abonoOk, setAbonoOk]     = useState(false);
   const emitirVoucher = async (booking) => {
     if (emitiendo) return;
     setEmitiendo(booking.id);
@@ -225,6 +232,62 @@ const AdminBookingsPanel = () => {
     } finally {
       setEmitiendo(false);
     }
+  };
+
+  // ── Registrar abono inline desde el modal de detalle ────────────
+  const handleAbonoInline = async () => {
+    if (!selectedBooking) return;
+    const rawAmount = parseFloat(abono.amount);
+    if (rawAmount <= 0 || !abono.method) {
+      setAbonoError('Completa monto y método de pago.');
+      return;
+    }
+    setAbonoLoading(true);
+    setAbonoError(null);
+    setAbonoOk(false);
+
+    const cur       = selectedBooking.currency || 'USD';
+    const isDOP     = cur === 'DOP';
+    const rate      = 60; // fallback — idealmente leer de exchange_rates
+    const amountUSD = isDOP ? parseFloat((rawAmount / rate).toFixed(2)) : rawAmount;
+    const amountDOP = isDOP ? Math.round(rawAmount) : Math.round(rawAmount * rate);
+
+    const paidUSD     = abonoPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+    const totalUSD    = isDOP
+      ? parseFloat((parseFloat(selectedBooking.total_amount || 0) / rate).toFixed(2))
+      : parseFloat(selectedBooking.total_amount || 0);
+    const newPaidUSD  = paidUSD + amountUSD;
+    const newStatus   = newPaidUSD >= totalUSD ? 'paid' : 'partial';
+
+    const { error: e1 } = await supabase.from('atlas_payments').insert({
+      booking_id:   selectedBooking.id,
+      amount:       amountUSD,
+      currency:     'USD',
+      method:       abono.method,
+      payment_type: 'deposito',
+      reference:    abono.reference || null,
+      payer_name:   abono.payer_name || null,
+      status:       'approved',
+      approved_by:  'admin',
+      approved_at:  new Date().toISOString(),
+      evidence:     { manual: true, registered_by: 'admin_panel_inline', original_currency: cur, original_amount: rawAmount, exchange_rate: rate, amount_dop: amountDOP },
+    });
+
+    if (e1) { setAbonoLoading(false); setAbonoError('Error: ' + e1.message); return; }
+
+    const newDepositDOP = (parseFloat(selectedBooking.deposit_amount_dop || 0)) + amountDOP;
+    await supabase.from('bookings').update({
+      payment_status:     newStatus,
+      deposit_amount:     parseFloat((paidUSD + amountUSD).toFixed(2)),
+      deposit_amount_dop: newDepositDOP,
+      updated_at:         new Date().toISOString(),
+    }).eq('id', selectedBooking.id);
+
+    setAbonoPayments(prev => [...prev, { amount: amountUSD, method: abono.method, created_at: new Date().toISOString(), status: 'approved', currency: 'USD' }]);
+    setAbono(a => ({ ...a, amount: '', reference: '' }));
+    setAbonoOk(true);
+    setAbonoLoading(false);
+    loadBookings(); // refrescar tarjetas
   };
 
   const notificarHermesQA = async (booking) => {
@@ -1552,6 +1615,106 @@ const AdminBookingsPanel = () => {
                       Aliun Travel SRL · aliuntravelgroup@gmail.com · +1 829 964 8443
                       {' · '}Ref de pago: <strong>{selectedBooking?.booking_reference}</strong>
                     </p>
+                  </div>
+                </div>
+
+                {/* ── REGISTRAR ABONO INLINE ───────────────────── */}
+                <div className="border border-slate-200 rounded-2xl overflow-hidden mt-2">
+                  <div className="bg-slate-900 px-5 py-3">
+                    <h4 className="font-bold text-[#C19A6B] text-sm tracking-wide">
+                      Registrar Abono
+                    </h4>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {selectedBooking?.currency === 'DOP' ? 'Monto en RD$' : 'Monto en USD'} · Reserva: <strong className="text-white">{selectedBooking?.booking_reference}</strong>
+                    </p>
+                  </div>
+
+                  {/* Historial de abonos */}
+                  {abonoPayments.length > 0 && (
+                    <div className="px-5 pt-3 pb-1 bg-slate-50 border-b border-slate-200">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Abonos registrados</p>
+                      {abonoPayments.map((p, i) => (
+                        <div key={i} className="flex justify-between items-center text-xs py-1.5 border-b border-slate-100 last:border-0">
+                          <span className="text-slate-500">{p.method || 'transferencia'}</span>
+                          <span className="font-bold text-emerald-600">
+                            {selectedBooking?.currency === 'DOP'
+                              ? `RD$ ${Math.round(parseFloat(p.amount) * 60).toLocaleString('es-DO')}`
+                              : `$${parseFloat(p.amount).toFixed(2)} USD`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Formulario */}
+                  <div className="px-5 py-4 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1">
+                          Monto ({selectedBooking?.currency === 'DOP' ? 'RD$' : 'USD'}) *
+                        </label>
+                        <input
+                          type="number"
+                          step={selectedBooking?.currency === 'DOP' ? '1' : '0.01'}
+                          placeholder={selectedBooking?.currency === 'DOP' ? 'Ej: 5000' : '0.00'}
+                          value={abono.amount}
+                          onChange={e => setAbono(a => ({ ...a, amount: e.target.value }))}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#C19A6B]"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1">Método *</label>
+                        <select
+                          value={abono.method}
+                          onChange={e => setAbono(a => ({ ...a, method: e.target.value }))}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#C19A6B]"
+                        >
+                          <option value="">Seleccionar...</option>
+                          <option value="transferencia_bancaria">Transferencia bancaria</option>
+                          <option value="efectivo">Efectivo en oficina</option>
+                          <option value="tarjeta">Tarjeta (AZUL/Carnet)</option>
+                          <option value="enlace_pago">Enlace de pago</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1">Referencia / Comprobante</label>
+                        <input
+                          type="text"
+                          placeholder="Nro. transferencia..."
+                          value={abono.reference}
+                          onChange={e => setAbono(a => ({ ...a, reference: e.target.value }))}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#C19A6B]"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1">Nombre del pagador</label>
+                        <input
+                          type="text"
+                          placeholder="Quién realizó el pago"
+                          value={abono.payer_name}
+                          onChange={e => setAbono(a => ({ ...a, payer_name: e.target.value }))}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#C19A6B]"
+                        />
+                      </div>
+                    </div>
+
+                    {abonoError && (
+                      <div className="bg-red-50 border border-red-200 text-red-700 text-xs px-3 py-2 rounded-lg">⚠️ {abonoError}</div>
+                    )}
+                    {abonoOk && (
+                      <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs px-3 py-2 rounded-lg">✅ Abono registrado correctamente.</div>
+                    )}
+
+                    <button
+                      onClick={handleAbonoInline}
+                      disabled={abonoLoading}
+                      className="w-full py-3 rounded-xl font-black text-sm uppercase tracking-wider transition text-white"
+                      style={{ background: abonoLoading ? '#94a3b8' : '#0A1628', border: '1.5px solid #C19A6B' }}
+                    >
+                      {abonoLoading ? '⏳ Registrando...' : '💳 Registrar Abono'}
+                    </button>
                   </div>
                 </div>
 
