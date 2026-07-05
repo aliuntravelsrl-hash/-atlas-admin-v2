@@ -12,6 +12,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/customSupabaseClient';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -139,7 +140,7 @@ export default function PaymentGatewayPage() {
     const newPaid   = paidUSD + amountUSD;
     const newStatus = newPaid >= totalUSD ? 'paid' : 'partial';
 
-    const { error: e1 } = await supabase.from('atlas_payments').insert({
+    const { error: e1 } = await supabaseAdmin.from('atlas_payments').insert({
       booking_id:   booking.id,
       amount:       amountUSD,
       currency:     'USD',
@@ -161,7 +162,7 @@ export default function PaymentGatewayPage() {
     if (e1) { setSubmitting(false); setSubmitErr('Error: ' + e1.message); return; }
 
     const newDepositDOP = parseFloat(booking.deposit_amount_dop || 0) + amountDOP;
-    await supabase.from('bookings').update({
+    await supabaseAdmin.from('bookings').update({
       payment_status:     newStatus,
       deposit_amount:     parseFloat((paidUSD + amountUSD).toFixed(2)),
       deposit_amount_dop: newDepositDOP,
