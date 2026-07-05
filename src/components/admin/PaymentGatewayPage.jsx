@@ -76,6 +76,58 @@ export default function PaymentGatewayPage() {
   const [docOk, setDocOk] = useState(false);
 
   // ── Generar recibo/estado de cuenta con abono ────────────────────
+  const [submitErr, setSubmitErr] = useState(null);
+
+  // ── Cargar reserva y pagos ─────────────────────────────────────
+  useEffect(() => {
+    if (!bookingRef) return;
+    const load = async () => {
+      setLoading(true);
+      const { data: bk } = await supabase
+        .from('bookings')
+        .select(`
+          id, booking_reference, lead_guest_name, lead_email, lead_phone,
+          nationality, currency, total_amount, total_amount_dop,
+          deposit_amount, deposit_amount_dop, payment_status,
+          status, fulfillment_status, check_in, check_out, nights,
+          room_name, adults, children, hotel_confirmation_no, hotel_code,
+          hotels_master ( name, zone, stars )
+        `)
+        .eq('booking_reference', bookingRef)
+        .single();
+
+      const { data: pgs } = await supabase
+        .from('atlas_payments')
+        .select('id, amount, currency, method, payment_type, reference, payer_name, created_at, status')
+        .eq('booking_id', bk?.id)
+        .in('status', ['approved', 'confirmed'])
+        .order('created_at', { ascending: false });
+
+      setBooking(bk || null);
+      setPayments(pgs || []);
+      if (bk) {
+        setForm(f => ({ ...f, amount: '', payer_name: bk.lead_guest_name || '' }));
+      }
+      setLoading(false);
+    };
+    load();
+  }, [bookingRef]);
+
+  // ── Cálculos financieros ───────────────────────────────────────
+  const cur      = booking?.currency || 'USD';
+  const isDOP    = cur === 'DOP';
+  const total    = parseFloat(booking?.total_amount || 0);
+  const rate     = exchangeRate || 60;
+
+  const paidUSD  = payments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+  const paidDisplay  = isDOP ? Math.round(paidUSD * rate) : paidUSD;
+  const totalDisplay = isDOP ? Math.round(total) : parseFloat(booking?.total_amount || 0);
+  const balance      = Math.max(0, totalDisplay - paidDisplay);
+  const pct          = totalDisplay > 0 ? Math.min(100, Math.round((paidDisplay / totalDisplay) * 100)) : 0;
+  const isPaid       = pct >= 100;
+
+  const bancos = BANCOS[isDOP ? 'DOP' : 'USD'] || [];
+
   // ── Generar documento según estado de la reserva ─────────────────
   // 1. Sin abono  → Cotización     (WF-COTIZACION-GOTENBERG-v2, aliun-cotizacion-individual)
   // 2. Con abono  → Estado Cuenta  (WF-RECIBO-ABONO-v1, aliun-recibo-abono)
@@ -179,57 +231,6 @@ export default function PaymentGatewayPage() {
       setGenerandoDoc(false);
     }
   };
-  const [submitErr, setSubmitErr] = useState(null);
-
-  // ── Cargar reserva y pagos ─────────────────────────────────────
-  useEffect(() => {
-    if (!bookingRef) return;
-    const load = async () => {
-      setLoading(true);
-      const { data: bk } = await supabase
-        .from('bookings')
-        .select(`
-          id, booking_reference, lead_guest_name, lead_email, lead_phone,
-          nationality, currency, total_amount, total_amount_dop,
-          deposit_amount, deposit_amount_dop, payment_status,
-          status, fulfillment_status, check_in, check_out, nights,
-          room_name, adults, children, hotel_confirmation_no, hotel_code,
-          hotels_master ( name, zone, stars )
-        `)
-        .eq('booking_reference', bookingRef)
-        .single();
-
-      const { data: pgs } = await supabase
-        .from('atlas_payments')
-        .select('id, amount, currency, method, payment_type, reference, payer_name, created_at, status')
-        .eq('booking_id', bk?.id)
-        .in('status', ['approved', 'confirmed'])
-        .order('created_at', { ascending: false });
-
-      setBooking(bk || null);
-      setPayments(pgs || []);
-      if (bk) {
-        setForm(f => ({ ...f, amount: '', payer_name: bk.lead_guest_name || '' }));
-      }
-      setLoading(false);
-    };
-    load();
-  }, [bookingRef]);
-
-  // ── Cálculos financieros ───────────────────────────────────────
-  const cur      = booking?.currency || 'USD';
-  const isDOP    = cur === 'DOP';
-  const total    = parseFloat(booking?.total_amount || 0);
-  const rate     = exchangeRate || 60;
-
-  const paidUSD  = payments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
-  const paidDisplay  = isDOP ? Math.round(paidUSD * rate) : paidUSD;
-  const totalDisplay = isDOP ? Math.round(total) : parseFloat(booking?.total_amount || 0);
-  const balance      = Math.max(0, totalDisplay - paidDisplay);
-  const pct          = totalDisplay > 0 ? Math.min(100, Math.round((paidDisplay / totalDisplay) * 100)) : 0;
-  const isPaid       = pct >= 100;
-
-  const bancos = BANCOS[isDOP ? 'DOP' : 'USD'] || [];
 
   // ── Registrar pago ─────────────────────────────────────────────
   const handleSubmit = async () => {
