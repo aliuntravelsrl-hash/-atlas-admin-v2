@@ -56,6 +56,7 @@ export function AppShell() {
               <Route path="admin/hotels" element={<AdminHotelsPage />} />
               <Route path="admin/excursions" element={<AdminExcursionsPage />} />
               <Route path="admin/bookings" element={<AdminBookingsPanel />} />
+              <Route path="admin/payments/:bookingRef" element={<PaymentGatewayPage />} />
               <Route path="admin/excursion-bookings" element={<AdminExcursionBookingsPanel />} />
 
 
