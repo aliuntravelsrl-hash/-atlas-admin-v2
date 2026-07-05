@@ -87,15 +87,36 @@ export default function PaymentGatewayPage() {
       const isDOP  = booking.currency === 'DOP';
       const montoDep = isDOP ? paidDisplay : paidUSD;
       const saldo    = isDOP ? Math.max(0, totalDisplay - paidDisplay) : Math.max(0, parseFloat(booking.total_amount || 0) - paidUSD);
-      await fetch('https://n8n-n8n.xaruuo.easypanel.host/webhook/aliun-deposito-aprobado', {
+      // WF-RECIBO-ABONO-v1 — webhook: aliun-recibo-abono
+      // WF más completo: foto hotel, historial pagos, async, sin tocar payment_status
+      await fetch('https://n8n-n8n.xaruuo.easypanel.host/webhook/aliun-recibo-abono', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          booking_reference: booking.booking_reference,
-          monto_deposito:    parseFloat(montoDep.toFixed(2)),
-          metodo_pago:       payments[0]?.method || 'transferencia_bancaria',
-          email_cliente:     booking.lead_email || 'aliuntravelgroup@gmail.com',
-          notas:             `Abono registrado | Saldo pendiente: ${saldo.toFixed(2)} ${isDOP ? 'DOP' : 'USD'}`,
+          booking_reference:      booking.booking_reference,
+          lead_guest_name:        booking.lead_guest_name,
+          lead_phone:             booking.lead_phone || '',
+          hotel_name:             booking.hotels_master?.name || booking.hotel_code || '',
+          hotel_zone:             booking.hotels_master?.zone || '',
+          check_in:               booking.check_in,
+          check_out:              booking.check_out,
+          adults:                 booking.adults || 2,
+          children:               booking.children || 0,
+          room_name:              booking.room_name || 'Estándar',
+          meal_plan:              'Todo Incluido',
+          hotel_confirmation_no:  booking.hotel_confirmation_no || '',
+          total_amount:           parseFloat(booking.total_amount || 0),
+          total:                  parseFloat(booking.total_amount || 0),
+          abono:                  parseFloat(isDOP ? paidDisplay : paidUSD),
+          paid:                   parseFloat(isDOP ? paidDisplay : paidUSD),
+          currency:               isDOP ? 'DOP' : 'USD',
+          status:                 booking.status || 'confirmed',
+          payments:               payments.map(p => ({
+            method:     p.method || 'transferencia',
+            amount:     isDOP ? Math.round(parseFloat(p.amount) * rate) : parseFloat(p.amount),
+            currency:   isDOP ? 'DOP' : 'USD',
+            created_at: p.created_at,
+          })),
         })
       });
       setReciboOk(true);
