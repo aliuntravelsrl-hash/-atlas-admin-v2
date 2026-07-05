@@ -190,30 +190,22 @@ const AdminBookingsPanel = () => {
     if (emitiendo) return;
     setEmitiendo(booking.id);
     try {
-      const res = await fetch('https://n8n-n8n.xaruuo.easypanel.host/webhook/aliun-cotizacion-individual', {
+      // WF-VOUCHER-GOTENBERG-v1 — webhook: aliun-voucher-emitir
+      const res = await fetch('https://n8n-n8n.xaruuo.easypanel.host/webhook/aliun-voucher-emitir', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          cotizacion_id:    booking.booking_reference,
-          hotel_slug:       booking.hotel_code || booking.hotels_master?.slug || '',
-          hotel_name:       booking.hotels_master?.name || booking.room_name || '',
-          cliente_nombre:   booking.lead_guest_name,
+          adults:           booking.adults || 2,
           check_in:         booking.check_in,
           check_out:        booking.check_out,
-          pax_adultos:      booking.adults || 2,
-          pax_ninos:        booking.children || 0,
-          habitaciones:     1,
-          plan_alimenticio: 'Todo Incluido',
-          tipo_hab:         booking.room_name || 'Estándar',
-          precio_total_dop: booking.currency === 'DOP' ? parseFloat(booking.total_amount) : 0,
-          precio_total_usd: booking.currency === 'USD' ? parseFloat(booking.total_amount) : 0,
-          moneda:           booking.currency || 'USD',
-          tipo_documento:   'VOUCHER',
-          deposito_usd:     booking.currency === 'USD' ? parseFloat(booking.total_amount) : 0,
-          deposito_dop:     booking.currency === 'DOP' ? parseFloat(booking.total_amount) : 0,
-          saldo_usd:        0,
-          saldo_dop:        0,
-          hotel_conf_no:    booking.hotel_confirmation_no || '',
+          children:         booking.children || 0,
+          hotel_slug:       booking.hotel_code || booking.hotels_master?.slug || '',
+          id_reserva:       booking.booking_reference,
+          noches:           booking.nights || Math.round((new Date(booking.check_out) - new Date(booking.check_in)) / 86400000),
+          nombre:           booking.lead_guest_name,
+          provider_locator: booking.hotel_confirmation_no || 'PENDIENTE',
+          regimen:          'Todo Incluido',
+          room_name:        booking.room_name || 'Habitación Estándar',
           send_telegram:    true,
           telegram_chat_id: '683265740',
         })
