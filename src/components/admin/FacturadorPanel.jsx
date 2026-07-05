@@ -64,12 +64,20 @@ const HabRow = ({ hab, idx, onChange, onRemove }) => (
 
 // ── Componente principal ────────────────────────────────────────────
 export default function FacturadorPanel({ booking }) {
-  const [modo, setModo] = useState('individual'); // 'individual' | 'grupal'
+  const [modo, setModo] = useState('individual'); // 'individual' | 'grupal' | 'recibo'
   const [generando, setGenerando] = useState(false);
   const [pdfUrl, setPdfUrl] = useState(null);
   const [error, setError] = useState(null);
 
   // ── Estado individual ─────────────────────────────────────────────
+  const [recibo, setRecibo] = useState({
+    booking_reference: '',
+    monto_deposito: '',
+    metodo_pago: 'transferencia_bancaria',
+    email_cliente: '',
+    notas: ''
+  });
+
   const [indiv, setIndiv] = useState({
     factura_num: '',
     hotel: '',
@@ -138,6 +146,13 @@ export default function FacturadorPanel({ booking }) {
           tipo_doc: (booking.status === 'confirmed' && totalAmt > 0) ? 'CONFIRMACION' : 'COTIZACION'
         }));
       });
+    setRecibo(prev => ({
+      ...prev,
+      booking_reference: booking.booking_reference || '',
+      email_cliente: booking.lead_email || '',
+      monto_deposito: booking.deposit_amount ? String(booking.deposit_amount) : '',
+      notas: ''
+    }));
     setGrupal(prev => ({
       ...prev,
       factura_num: genRef('FAC-GROUP'),
@@ -238,7 +253,53 @@ export default function FacturadorPanel({ booking }) {
     }
   };
 
-  // ── Generar factura GRUPAL ────────────────────────────────────────
+  // ── Generar RECIBO DE ABONO ──────────────────────────────────────
+  const generarRecibo = async () => {
+    if (!recibo.booking_reference) {
+      setError('Referencia de reserva requerida.');
+      return;
+    }
+    if (!recibo.monto_deposito || parseFloat(recibo.monto_deposito) <= 0) {
+      setError('Ingresa el monto del abono.');
+      return;
+    }
+    setGenerando(true);
+    setError(null);
+    setPdfUrl(null);
+    try {
+      const payload = {
+        booking_reference: recibo.booking_reference,
+        monto_deposito:    parseFloat(recibo.monto_deposito),
+        metodo_pago:       recibo.metodo_pago || 'transferencia_bancaria',
+        email_cliente:     recibo.email_cliente || 'aliuntravelgroup@gmail.com',
+        notas:             recibo.notas || '',
+      };
+
+      const res = await fetch(`${N8N_BASE}/webhook/aliun-deposito-aprobado`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.success || data.voucher_emitido) {
+        const url = data.voucher_url || data.pdf_url || 'telegram';
+        setPdfUrl(url);
+        await logFactura('recibo', recibo.booking_reference, url, '');
+      } else if (data.error) {
+        throw new Error(data.error);
+      } else {
+        // Respuesta async — PDF llega por Telegram
+        setPdfUrl('telegram');
+        await logFactura('recibo', recibo.booking_reference, 'telegram-async', '');
+      }
+    } catch (e) {
+      setError('Error generando recibo: ' + e.message);
+    } finally {
+      setGenerando(false);
+    }
+  };
+
+  // ── Generar factura GRUPAL ────────────────────────────────────────────
   const generarGrupal = async () => {
     if (!grupal.hotel || !grupal.check_in || !grupal.check_out) {
       setError('Completa hotel y fechas.');
@@ -327,17 +388,21 @@ export default function FacturadorPanel({ booking }) {
 
       {/* Selector de modo */}
       <div className="flex gap-2">
-        {['individual', 'grupal'].map(m => (
+        {[
+          { key: 'individual', label: '📄 Factura Individual' },
+          { key: 'grupal',     label: '📋 Factura Grupal' },
+          { key: 'recibo',     label: '🧾 Recibo de Abono' },
+        ].map(({ key, label }) => (
           <button
-            key={m}
-            onClick={() => { setModo(m); setPdfUrl(null); setError(null); }}
+            key={key}
+            onClick={() => { setModo(key); setPdfUrl(null); setError(null); }}
             className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition border ${
-              modo === m
+              modo === key
                 ? 'bg-yellow-600/15 border-yellow-600/50 text-yellow-500'
                 : 'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-700'
             }`}
           >
-            {m === 'individual' ? '📄 Factura Individual' : '📋 Factura Grupal'}
+            {label}
           </button>
         ))}
       </div>
@@ -419,6 +484,60 @@ export default function FacturadorPanel({ booking }) {
         </div>
       )}
 
+      {/* ── MODO RECIBO ────────────────────────────────────────────── */}
+      {modo === 'recibo' && (
+        <div className="space-y-4">
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-400">
+            🧾 Genera el <strong>Estado de Cuenta con Depósito</strong> — confirma el abono recibido,
+            calcula el saldo pendiente y lo envía por Gmail + Telegram.
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Referencia Reserva *">
+              <Input
+                value={recibo.booking_reference}
+                onChange={v => setRecibo(p => ({...p, booking_reference: v}))}
+                placeholder="ALN-XXXXXX"
+              />
+            </Field>
+            <Field label="Monto abono (USD) *">
+              <Input
+                type="number"
+                value={recibo.monto_deposito}
+                onChange={v => setRecibo(p => ({...p, monto_deposito: v}))}
+                placeholder="Ej: 250.00"
+              />
+            </Field>
+            <Field label="Método de pago">
+              <Select
+                value={recibo.metodo_pago}
+                onChange={v => setRecibo(p => ({...p, metodo_pago: v}))}
+                options={[
+                  {value: 'transferencia_bancaria', label: 'Transferencia bancaria'},
+                  {value: 'efectivo',               label: 'Efectivo en oficina'},
+                  {value: 'tarjeta',                label: 'Tarjeta (AZUL/Carnet)'},
+                  {value: 'enlace_pago',            label: 'Enlace de pago'},
+                ]}
+              />
+            </Field>
+            <Field label="Email del cliente">
+              <Input
+                type="email"
+                value={recibo.email_cliente}
+                onChange={v => setRecibo(p => ({...p, email_cliente: v}))}
+                placeholder="cliente@email.com"
+              />
+            </Field>
+            <Field label="Notas adicionales" >
+              <Input
+                value={recibo.notas}
+                onChange={v => setRecibo(p => ({...p, notas: v}))}
+                placeholder="Observaciones opcionales"
+              />
+            </Field>
+          </div>
+        </div>
+      )}
+
       {/* ── MODO GRUPAL ────────────────────────────────────────────── */}
       {modo === 'grupal' && (
         <div className="space-y-4">
@@ -497,12 +616,19 @@ export default function FacturadorPanel({ booking }) {
 
       {/* ── Botón generar ─────────────────────────────────────────── */}
       <button
-        onClick={modo === 'individual' ? generarIndividual : generarGrupal}
+        onClick={
+          modo === 'individual' ? generarIndividual :
+          modo === 'recibo'     ? generarRecibo :
+                                  generarGrupal
+        }
         disabled={generando}
         className="w-full py-3 rounded-xl font-black text-sm uppercase tracking-wider transition"
         style={{ background: generando ? '#334155' : NAVY, border: `1.5px solid ${GOLD}`, color: GOLD }}
       >
-        {generando ? '⏳ Generando PDF...' : `🖨️ Generar ${modo === 'individual' ? 'Factura Individual' : 'Factura Grupal'}`}
+        {generando ? '⏳ Generando PDF...' : 
+          modo === 'individual' ? '🖨️ Generar Factura Individual' :
+          modo === 'recibo'     ? '🧾 Generar Recibo de Abono' :
+                                  '🖨️ Generar Factura Grupal'}
       </button>
 
       {/* ── Error ─────────────────────────────────────────────────── */}
