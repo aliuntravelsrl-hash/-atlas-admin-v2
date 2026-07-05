@@ -204,7 +204,7 @@ export default function PaymentGatewayPage() {
 
   // ── Render ─────────────────────────────────────────────────────
   return (
-    <div style={{ minHeight: '100vh', background: C.dark, fontFamily: ''Inter', system-ui, sans-serif', color: '#fff' }}>
+    <div style={{ minHeight: '100vh', background: C.dark, fontFamily: 'Inter, system-ui, sans-serif', color: '#fff' }}>
       <style>{`
         @keyframes spin { to { transform: rotate(360deg) } }
         .pay-input { background: #0F1E30; border: 1.5px solid #1E2D3D; border-radius: 10px; padding: 10px 14px; color: #fff; font-size: 14px; width: 100%; outline: none; transition: border-color .2s; }
