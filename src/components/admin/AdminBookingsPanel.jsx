@@ -184,6 +184,57 @@ const AdminBookingsPanel = () => {
     }
   }, [bookings]);
 
+  // ── Emitir voucher de entrada al hotel ──────────────────────────
+  const [emitiendo, setEmitiendo] = useState(false);
+  const emitirVoucher = async (booking) => {
+    if (emitiendo) return;
+    setEmitiendo(booking.id);
+    try {
+      const res = await fetch('https://n8n-n8n.xaruuo.easypanel.host/webhook/aliun-cotizacion-individual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cotizacion_id:    booking.booking_reference,
+          hotel_slug:       booking.hotel_code || booking.hotels_master?.slug || '',
+          hotel_name:       booking.hotels_master?.name || booking.room_name || '',
+          cliente_nombre:   booking.lead_guest_name,
+          check_in:         booking.check_in,
+          check_out:        booking.check_out,
+          pax_adultos:      booking.adults || 2,
+          pax_ninos:        booking.children || 0,
+          habitaciones:     1,
+          plan_alimenticio: 'Todo Incluido',
+          tipo_hab:         booking.room_name || 'Estándar',
+          precio_total_dop: booking.currency === 'DOP' ? parseFloat(booking.total_amount) : 0,
+          precio_total_usd: booking.currency === 'USD' ? parseFloat(booking.total_amount) : 0,
+          moneda:           booking.currency || 'USD',
+          tipo_documento:   'VOUCHER',
+          deposito_usd:     booking.currency === 'USD' ? parseFloat(booking.total_amount) : 0,
+          deposito_dop:     booking.currency === 'DOP' ? parseFloat(booking.total_amount) : 0,
+          saldo_usd:        0,
+          saldo_dop:        0,
+          hotel_conf_no:    booking.hotel_confirmation_no || '',
+          send_telegram:    true,
+          telegram_chat_id: '683265740',
+        })
+      });
+      // Actualizar fulfillment_status en DB
+      const { supabase: sb } = await import('@/lib/customSupabaseClient').catch(() => ({ supabase: null }));
+      if (sb) {
+        await sb.from('bookings').update({
+          fulfillment_status: 'voucher_issued',
+          voucher_sent_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).eq('id', booking.id);
+      }
+      loadBookings();
+    } catch (e) {
+      console.error('Error emitiendo voucher:', e);
+    } finally {
+      setEmitiendo(false);
+    }
+  };
+
   const notificarHermesQA = async (booking) => {
     try {
       await fetch('https://n8n-n8n.xaruuo.easypanel.host/webhook/hermes-qa-seguimiento', {
@@ -579,22 +630,21 @@ const AdminBookingsPanel = () => {
     let matchesTab = true;
     if (!hasActiveFilters) {
       if (activeTab === 'pending_validation') {
-        // Confirmada por proveedor, pago pendiente o parcial
+        // Confirmada por proveedor (tiene conf. no.) + pago pendiente o parcial
         matchesTab = b.hotel_confirmation_no &&
                      b.hotel_confirmation_no.trim() !== '' &&
                      b.status !== 'cancelled' &&
                      b.fulfillment_status !== 'voucher_issued' &&
                      b.payment_status !== 'paid';
       } else if (activeTab === 'waiting_confirmation') {
-        // Sin localizador del proveedor
+        // Sin localizador del proveedor Y pago pendiente (esperando confirmación del hotel)
         matchesTab = (!b.hotel_confirmation_no || b.hotel_confirmation_no.trim() === '') &&
                      b.status !== 'cancelled' &&
-                     b.fulfillment_status !== 'voucher_issued';
+                     b.fulfillment_status !== 'voucher_issued' &&
+                     b.payment_status !== 'paid';
       } else if (activeTab === 'completed') {
-        // Pagado + localizador → listo para voucher
+        // Pagado (cualquier origen: manual o proveedor) → listo para emitir voucher
         matchesTab = b.payment_status === 'paid' &&
-                     b.hotel_confirmation_no &&
-                     b.hotel_confirmation_no.trim() !== '' &&
                      b.fulfillment_status !== 'voucher_issued' &&
                      b.status !== 'cancelled';
       } else if (activeTab === 'voucher_issued') {
@@ -895,6 +945,16 @@ const AdminBookingsPanel = () => {
                               onClick={(e) => { e.stopPropagation(); handleShareWhatsApp(booking); }}
                             >
                               💬 WhatsApp
+                            </Button>
+                            )}
+                            {booking.payment_status === 'paid' && booking.fulfillment_status !== 'voucher_issued' && (
+                            <Button
+                              size="sm"
+                              className="bg-[#C19A6B] hover:bg-[#B08050] text-black font-bold text-xs gap-1"
+                              onClick={(e) => { e.stopPropagation(); emitirVoucher(booking); }}
+                              disabled={emitiendo === booking.id}
+                            >
+                              {emitiendo === booking.id ? '⏳ Emitiendo...' : '🏨 Emitir Voucher'}
                             </Button>
                             )}
                             
