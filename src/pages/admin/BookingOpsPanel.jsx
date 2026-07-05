@@ -49,6 +49,7 @@ const WF_VOUCHER        = `${N8N_BASE}/aliun-voucher`
 const WF_CONFIRMACION   = `${N8N_BASE}/aliun-cotizacion-individual`
 const WF_COTIZACION     = `${N8N_BASE}/aliun-cotizacion-individual`
 const WF_EXCURSION_DOC  = `${N8N_BASE}/aliun-excursion-doc`
+const WF_RECIBO         = `${N8N_BASE}/aliun-recibo-abono`
 
 // ── Utilidades ───────────────────────────────────────────────
 const fmt = (n) => parseFloat(n || 0).toFixed(2)
@@ -798,14 +799,63 @@ function TabRecibo({ bookings, hotels, initialBookingId = '' }) {
   const fmt     = n => parseFloat(n || 0).toFixed(2)
   const fmtDOP  = n => Math.round(parseFloat(n || 0) * RATE).toLocaleString('es-DO')
 
-  const handleImprimir = () => {
+  const handleImprimir = async () => {
     if (!booking) return
+    const fmt = n => parseFloat(n || 0).toFixed(2)
+    const hotel = hotels.find(h => h.id === booking.hotel_id)
+    const total = parseFloat(booking.total_amount || 0)
+    const paid  = payments.reduce((s, p) => s + parseFloat(p.amount || 0), 0)
+
+    // Llamar WF-RECIBO-ABONO-v1 con Gotenberg + Telegram
+    try {
+      const res = await fetch(WF_RECIBO, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          booking_reference:     booking.booking_reference,
+          lead_guest_name:       booking.lead_guest_name,
+          lead_phone:            booking.lead_phone || '',
+          hotel_name:            hotel?.name || booking.hotel_code || '',
+          hotel_zone:            hotel?.zone || '',
+          check_in:              booking.check_in,
+          check_out:             booking.check_out,
+          adults:                booking.adults || 2,
+          children:              booking.children || 0,
+          room_name:             booking.room_name || 'Estándar',
+          meal_plan:             'Todo Incluido',
+          hotel_confirmation_no: booking.hotel_confirmation_no || '',
+          status:                booking.status,
+          currency:              booking.currency || 'USD',
+          total_amount:          total,
+          total:                 total,
+          paid:                  paid,
+          abono:                 paid,
+          payments:              payments.map(p => ({
+            amount:     p.amount,
+            currency:   p.currency || booking.currency || 'USD',
+            method:     p.method || 'Transferencia',
+            created_at: p.created_at,
+            reference:  p.reference || ''
+          }))
+        })
+      })
+      const data = await res.json()
+      alert('✅ Recibo enviado a Telegram. El PDF estará listo en ~15 segundos.')
+      if (data.pdf_url) window.open(data.pdf_url, '_blank')
+    } catch (err) {
+      alert('Error generando recibo: ' + err.message)
+    }
+  }
+
+  const _legacyHtml = () => {
+    if (!booking) return ''
+    const fmt = n => parseFloat(n || 0).toFixed(2)
     const pRows = payments.map(p =>
-      `<tr>
-        <td style="padding:5px 0;color:#666">${new Date(p.created_at).toLocaleDateString('es-DO')}</td>
-        <td style="padding:5px 0">${p.method || '—'}</td>
-        <td style="padding:5px 0;text-align:right;color:#16a34a;font-weight:600">+$${fmt(p.amount)}</td>
-      </tr>`
+      '<tr>' +
+      '<td>' + new Date(p.created_at).toLocaleDateString('es-DO') + '</td>' +
+      '<td>' + (p.method || '—') + '</td>' +
+      '<td>+$' + fmt(p.amount) + '</td>' +
+      '</tr>'
     ).join('')
 
     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
@@ -978,9 +1028,10 @@ ${payments.length > 0 ? `<hr><p style="font-weight:700;margin:0 0 6px">Historial
           {/* Botón imprimir */}
           <button
             onClick={handleImprimir}
-            className="w-full py-2.5 rounded-lg bg-white text-gray-950 font-bold text-sm hover:bg-gray-100 transition"
+            className="w-full py-2.5 rounded-lg font-bold text-sm transition"
+            style={{background:'#0A1628',color:'#B8860B'}}
           >
-            🖨️ Imprimir / Descargar PDF
+            🧾 Generar Recibo PDF → Telegram
           </button>
         </div>
       )}
