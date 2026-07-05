@@ -1065,10 +1065,10 @@ const AdminBookingsPanel = () => {
                               className="bg-[#0A3A6B] hover:bg-[#082D54] text-white font-bold text-xs"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleOpenDetail(booking, 'payment');
+                                window.location.href = `/admin/payments/${booking.booking_reference}`;
                               }}
                             >
-                              Add to PayCart 🛒
+                              💳 Gestionar Pago
                             </Button>
 
                             <Button
