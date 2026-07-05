@@ -23,6 +23,7 @@ import ApiToolbox from '../features/api-toolbox/pages/ApiToolbox'
 import AdminDashboardPage from '../pages/admin/AdminDashboardPage'
 import BookingOpsPanel from '../pages/admin/BookingOpsPanel'
 import AdminHotelsPage from '../pages/admin/AdminHotelsPage'
+import PaymentGatewayPage from '@/components/admin/PaymentGatewayPage';
 import AdminBookingsPanel from './admin/AdminBookingsPanel'
 import AdminExcursionBookingsPanel from './admin/AdminExcursionBookingsPanel'
 import AdminSalesPage from '../pages/admin/AdminSalesPage'
