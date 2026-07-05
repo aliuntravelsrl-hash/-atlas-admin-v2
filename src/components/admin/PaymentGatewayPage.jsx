@@ -75,6 +75,37 @@ export default function PaymentGatewayPage() {
   const [generandoDoc, setGenerandoDoc] = useState(false);
   const [docOk, setDocOk] = useState(false);
 
+  // ── Generar recibo/estado de cuenta con abono ────────────────────
+  const [generandoRecibo, setGenerandoRecibo] = useState(false);
+  const [reciboOk, setReciboOk] = useState(false);
+
+  const generarRecibo = async () => {
+    if (!booking || paidUSD <= 0) return;
+    setGenerandoRecibo(true);
+    setReciboOk(false);
+    try {
+      const isDOP  = booking.currency === 'DOP';
+      const montoDep = isDOP ? paidDisplay : paidUSD;
+      const saldo    = isDOP ? Math.max(0, totalDisplay - paidDisplay) : Math.max(0, parseFloat(booking.total_amount || 0) - paidUSD);
+      await fetch('https://n8n-n8n.xaruuo.easypanel.host/webhook/aliun-deposito-aprobado', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          booking_reference: booking.booking_reference,
+          monto_deposito:    parseFloat(montoDep.toFixed(2)),
+          metodo_pago:       payments[0]?.method || 'transferencia_bancaria',
+          email_cliente:     booking.lead_email || 'aliuntravelgroup@gmail.com',
+          notas:             `Abono registrado | Saldo pendiente: ${saldo.toFixed(2)} ${isDOP ? 'DOP' : 'USD'}`,
+        })
+      });
+      setReciboOk(true);
+    } catch(e) {
+      console.error('Error generando recibo:', e);
+    } finally {
+      setGenerandoRecibo(false);
+    }
+  };
+
   // ── Generar factura individual desde PaymentGatewayPage ────────
   const generarFactura = async () => {
     if (!booking) return;
@@ -399,20 +430,33 @@ export default function PaymentGatewayPage() {
                 opacity: generandoDoc ? 0.6 : 1,
               }}
             >
-              {generandoDoc
-                ? '⏳ Generando...'
-                : isPaid
-                  ? '📄 Exportar Confirmación'
-                  : '📋 Exportar Cotización'}
+              {generandoDoc ? '⏳ Generando...' : isPaid ? '📄 Confirmación' : '📋 Cotización'}
+            </button>
+            <button
+              onClick={generarRecibo}
+              disabled={generandoRecibo || paidUSD <= 0}
+              title={paidUSD <= 0 ? 'Registra un abono primero' : 'Estado de cuenta con abono y saldo pendiente'}
+              style={{
+                flex: 1, padding: '12px 16px', borderRadius: 12,
+                fontWeight: 800, fontSize: 13,
+                cursor: (generandoRecibo || paidUSD <= 0) ? 'not-allowed' : 'pointer',
+                border: `1.5px solid #3B82F6`,
+                background: paidUSD <= 0 ? '#1E2D3D' : C.navy,
+                color: paidUSD <= 0 ? '#475569' : '#3B82F6',
+                letterSpacing: 1, transition: 'all .2s',
+                opacity: generandoRecibo ? 0.6 : 1,
+              }}
+            >
+              {generandoRecibo ? '⏳ Generando...' : '🧾 Estado de Cuenta'}
             </button>
           </div>
-          {docOk && (
+          {(docOk || reciboOk) && (
             <div style={{
               marginTop: 8, padding: '10px 14px', borderRadius: 10,
               background: '#05966915', border: '1px solid #05966940',
               fontSize: 12, color: '#059669', textAlign: 'center'
             }}>
-              ✅ Documento generado — revisa Telegram {'{'}683265740{'}'}
+              ✅ Documento generado — revisa Telegram 683265740
             </div>
           )}
         </div>
