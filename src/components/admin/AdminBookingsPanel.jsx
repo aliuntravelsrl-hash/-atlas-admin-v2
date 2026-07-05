@@ -248,7 +248,7 @@ const AdminBookingsPanel = () => {
 
     const cur       = selectedBooking.currency || 'USD';
     const isDOP     = cur === 'DOP';
-    const rate      = 60; // fallback — idealmente leer de exchange_rates
+    const rate      = 60; // TODO: conectar a useExchangeRate cuando se pueda pasar el hook aquí
     const amountUSD = isDOP ? parseFloat((rawAmount / rate).toFixed(2)) : rawAmount;
     const amountDOP = isDOP ? Math.round(rawAmount) : Math.round(rawAmount * rate);
 
@@ -372,6 +372,17 @@ const AdminBookingsPanel = () => {
     setDetailTab(defaultTab);
     setIsDetailOpen(true);
     fetchCrmLead(booking.lead_guest_name);
+
+    // Cargar pagos existentes para el formulario inline de abono
+    setAbonoOk(false);
+    setAbonoError(null);
+    setAbono(a => ({ ...a, amount: '', reference: '', payer_name: booking.lead_guest_name || '' }));
+    supabase.from('atlas_payments')
+      .select('amount, method, created_at, reference, status, currency')
+      .eq('booking_id', booking.id)
+      .in('status', ['approved', 'confirmed'])
+      .then(({ data }) => setAbonoPayments(data || []));
+
     const esPendienteCobro = booking.hotel_confirmation_no &&
       booking.hotel_confirmation_no.trim() !== '' &&
       booking.status !== 'cancelled' &&
