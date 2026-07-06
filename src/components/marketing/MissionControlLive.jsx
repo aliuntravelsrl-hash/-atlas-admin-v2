@@ -87,6 +87,8 @@ export const MissionControlLive = () => {
   const [criticalNoVoucher,  setCriticalNoVoucher]  = useState([]);
   const [warningNoVoucher,   setWarningNoVoucher]   = useState([]);
   const [recentActivity,     setRecentActivity]     = useState([]);
+  const [actividadSistema,   setActividadSistema]   = useState([]);
+  const [actividadTab,       setActividadTab]       = useState('operarios'); // operarios | sistema
 
   const [incidentes,         setIncidentes]         = useState([]);
   const [resumenIncidentes,  setResumenIncidentes]  = useState({ sin_resolver: 0 });
@@ -243,7 +245,7 @@ export const MissionControlLive = () => {
 
         const { data: gapBookings } = await supabase
           .from('bookings')
-          .select('id, booking_reference, total_amount, currency, created_at, guest_name, voucher_code, voucher_id')
+          .select('id, booking_reference, total_amount, currency, created_at, lead_guest_name, voucher_code, voucher_id')
           .eq('payment_status', 'paid')
           .or('voucher_code.is.null,voucher_id.is.null');
 
@@ -267,12 +269,40 @@ export const MissionControlLive = () => {
           })),
         ]);
 
+        // Feed OPERARIOS — bookings por updated_at (cambios de estado reales)
         const { data: recent } = await supabase
           .from('bookings')
-          .select('booking_reference, status, payment_status, created_at, total_amount, currency, guest_name')
-          .order('created_at', { ascending: false })
-          .limit(10);
+          .select('booking_reference, lead_guest_name, status, payment_status, created_at, updated_at, total_amount, currency, booking_type, fulfillment_status')
+          .order('updated_at', { ascending: false })
+          .limit(15);
         setRecentActivity(recent || []);
+
+        // Feed SISTEMA — logs resueltos + tareas completadas < 48h
+        const cutoff48h = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+        const [rLogs, rTasks] = await Promise.all([
+          supabase.from('logs_operativos')
+            .select('id, nivel, evento, mensaje, resuelto, escalado, origen, created_at')
+            .gte('created_at', cutoff48h)
+            .order('created_at', { ascending: false })
+            .limit(20),
+          supabase.from('atlas_tasks')
+            .select('codigo, titulo, tipo, asignado_tipo, asignado_a, fecha_completado')
+            .eq('estado', 'completado')
+            .gte('fecha_completado', cutoff48h)
+            .order('fecha_completado', { ascending: false })
+            .limit(10),
+        ]);
+        // Unificar en un solo feed ordenado por timestamp
+        const sysLogs = (rLogs.data || []).map(l => ({
+          _ts: l.created_at, _tipo: 'log', ...l
+        }));
+        const sysTasks = (rTasks.data || []).map(t => ({
+          _ts: t.fecha_completado, _tipo: 'tarea', ...t
+        }));
+        const unified = [...sysLogs, ...sysTasks]
+          .sort((a, b) => new Date(b._ts) - new Date(a._ts))
+          .slice(0, 30);
+        setActividadSistema(unified);
 
         const { data: fetchedTasks } = await supabase
           .from('atlas_tasks')
@@ -470,7 +500,7 @@ export const MissionControlLive = () => {
           <div className="space-y-2 border-t border-rose-900/60 pt-2.5">
             {criticalNoVoucher.map(b => (
               <div key={b.id} className="text-xs flex items-center justify-between bg-rose-950/60 border border-rose-900/40 px-3 py-1.5 rounded-lg text-rose-300">
-                <span className="font-bold">{b.booking_reference || 'REF-N/A'} — {b.guest_name || 'Huésped'}</span>
+                <span className="font-bold">{b.booking_reference || 'REF-N/A'} — {b.lead_guest_name || 'Huésped'}</span>
                 <span className="font-mono bg-rose-500/20 px-2 py-0.5 rounded text-[10px]">
                   {b.currency} {Number(b.total_amount||0).toLocaleString(undefined,{minimumFractionDigits:2})}
                 </span>
@@ -492,7 +522,7 @@ export const MissionControlLive = () => {
           <div className="space-y-2 border-t border-amber-900/60 pt-2.5">
             {warningNoVoucher.map(b => (
               <div key={b.id} className="text-xs flex items-center justify-between bg-amber-950/60 border border-amber-900/40 px-3 py-1.5 rounded-lg text-amber-300">
-                <span className="font-bold">{b.booking_reference || 'REF-N/A'} — {b.guest_name || 'Huésped'}</span>
+                <span className="font-bold">{b.booking_reference || 'REF-N/A'} — {b.lead_guest_name || 'Huésped'}</span>
                 <span className="font-mono bg-amber-500/20 px-2 py-0.5 rounded text-[10px]">
                   Falta: {b.voucher_code === null ? 'Código' : 'URL PDF'}
                 </span>
@@ -668,7 +698,7 @@ export const MissionControlLive = () => {
               <div key={i} className="bg-slate-950 border border-amber-500/20 p-3 rounded-xl flex items-center justify-between text-xs">
                 <div>
                   <span className="font-bold text-white">{p.booking_reference || 'REF-N/A'}</span>
-                  <span className="text-slate-500 ml-2">{p.guest_name || 'Huésped'}</span>
+                  <span className="text-slate-500 ml-2">{p.lead_guest_name || p.booking_reference || 'Huésped'}</span>
                 </div>
                 <div className="text-right">
                   <div className="font-mono text-amber-400">{p.currency} {Number(p.total_amount||0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
@@ -1030,40 +1060,154 @@ export const MissionControlLive = () => {
           )}
         </div>
 
-        {/* Columna 3: Actividad Reciente */}
+        {/* Columna 3: Actividad Reciente — dos feeds */}
         <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col space-y-4">
-          <h3 className="font-bold text-white text-lg border-b border-slate-800 pb-3">📡 Actividad Reciente</h3>
-          <div className="bg-slate-950 border border-slate-850 rounded-xl p-4 font-mono text-[10px] space-y-3.5 flex-1 max-h-[360px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800">
-            {recentActivity.length === 0 ? (
-              <div className="text-center py-12 text-slate-600 text-xs italic animate-pulse">Esperando transacciones...</div>
-            ) : (
-              recentActivity.map((act, idx) => (
-                <div key={idx} className="flex flex-col gap-1 hover:bg-slate-900/50 p-2 rounded border border-slate-900 transition">
-                  <div className="flex items-center justify-between text-slate-500">
-                    <span>{new Date(act.created_at).toLocaleDateString('es-DO')} {new Date(act.created_at).toLocaleTimeString('es-DO')}</span>
-                    <span className="font-bold text-slate-400">{act.booking_reference || 'REF-N/A'}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-slate-200 font-medium">
-                    <span>{act.guest_name || 'Huésped'}</span>
-                    <span className="text-blue-400">{act.currency} {Number(act.total_amount||0).toLocaleString(undefined,{minimumFractionDigits:2})}</span>
-                  </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className={`px-2 rounded text-[8px] font-black uppercase ${
-                      act.status === 'confirmed' || act.status === 'completed' ? 'bg-emerald-500/15 text-emerald-400' :
-                      act.status === 'cancelled' ? 'bg-rose-500/15 text-rose-400' : 'bg-amber-500/15 text-amber-400'
-                    }`}>Status: {act.status}</span>
-                    <span className={`px-2 rounded text-[8px] font-black uppercase ${
-                      act.payment_status === 'paid'    ? 'bg-emerald-500/15 text-emerald-400' :
-                      act.payment_status === 'pending' ? 'bg-amber-500/15 text-amber-400' :
-                                                         'bg-slate-800 text-slate-400'
-                    }`}>Pago: {act.payment_status}</span>
-                  </div>
-                </div>
-              ))
-            )}
+
+          {/* Header con tabs */}
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <h3 className="font-bold text-white text-base">📡 Actividad Reciente</h3>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setActividadTab('operarios')}
+                className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-md border transition ${
+                  actividadTab === 'operarios'
+                    ? 'bg-blue-500/20 border-blue-500/40 text-blue-400'
+                    : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600'
+                }`}>
+                👤 Operarios
+              </button>
+              <button
+                onClick={() => setActividadTab('sistema')}
+                className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-md border transition ${
+                  actividadTab === 'sistema'
+                    ? 'bg-violet-500/20 border-violet-500/40 text-violet-400'
+                    : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600'
+                }`}>
+                ⚙ Sistema
+              </button>
+            </div>
           </div>
+
+          {/* TTL badge */}
+          <div className="text-[9px] text-slate-600 font-bold uppercase">
+            {actividadTab === 'sistema' ? '⏱ Ventana: últimas 48 h — se limpia solo' : '⏱ Últimos 15 movimientos de reservas'}
+          </div>
+
+          {/* Feed OPERARIOS */}
+          {actividadTab === 'operarios' && (
+            <div className="space-y-2 flex-1 max-h-[480px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800">
+              {recentActivity.length === 0 ? (
+                <div className="text-center py-12 text-slate-600 text-xs italic animate-pulse">Esperando transacciones...</div>
+              ) : (
+                recentActivity.map((act, idx) => {
+                  const isNew = (Date.now() - new Date(act.updated_at).getTime()) < 3600000; // < 1h
+                  const actionLabel =
+                    act.status === 'confirmed'  ? 'Confirmada' :
+                    act.status === 'cancelled'  ? 'Cancelada'  :
+                    act.status === 'completed'  ? 'Completada' :
+                    act.payment_status === 'paid' ? 'Pago recibido' :
+                    act.payment_status === 'pending' ? 'Pago pendiente' : act.status;
+                  const actionColor =
+                    act.status === 'confirmed' || act.status === 'completed' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
+                    act.status === 'cancelled' ? 'text-rose-400 bg-rose-500/10 border-rose-500/20' :
+                    act.payment_status === 'paid' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
+                    'text-amber-400 bg-amber-500/10 border-amber-500/20';
+                  return (
+                    <div key={idx} className={`bg-slate-950 border rounded-xl p-3 flex flex-col gap-1.5 transition ${
+                      isNew ? 'border-blue-500/30' : 'border-slate-800'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono font-bold text-[10px] text-blue-400">{act.booking_reference || 'REF-N/A'}</span>
+                        <div className="flex items-center gap-1.5">
+                          {isNew && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}
+                          <span className="text-[9px] text-slate-500">{relativeTime(act.updated_at)}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-white font-semibold truncate max-w-[120px]">{act.lead_guest_name || 'Huésped'}</span>
+                        <span className="text-[10px] font-mono text-slate-300">{act.currency} {Number(act.total_amount||0).toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`px-2 py-0.5 text-[8px] font-black uppercase rounded border ${actionColor}`}>{actionLabel}</span>
+                        {act.fulfillment_status && act.fulfillment_status !== 'pending' && (
+                          <span className="px-2 py-0.5 text-[8px] font-black uppercase rounded border bg-slate-800 border-slate-700 text-slate-400">{act.fulfillment_status}</span>
+                        )}
+                        {act.booking_type && (
+                          <span className="text-[8px] text-slate-600 uppercase">{act.booking_type}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+
+          {/* Feed SISTEMA */}
+          {actividadTab === 'sistema' && (
+            <div className="space-y-2 flex-1 max-h-[480px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800">
+              {actividadSistema.length === 0 ? (
+                <div className="text-center py-12 text-slate-600 text-xs italic animate-pulse">Sin actividad del sistema en las últimas 48 h...</div>
+              ) : (
+                actividadSistema.map((item, idx) => {
+                  if (item._tipo === 'log') {
+                    const nivelColor =
+                      item.nivel === 'CRITICAL' ? 'text-rose-400 bg-rose-500/10 border-rose-500/20' :
+                      item.nivel === 'WARNING'  ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' :
+                                                  'text-blue-400 bg-blue-500/10 border-blue-500/20';
+                    return (
+                      <div key={`log-${item.id||idx}`} className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`px-1.5 py-0.5 text-[8px] font-black uppercase rounded border ${nivelColor}`}>{item.nivel}</span>
+                            <span className="text-[8px] font-black uppercase text-slate-500">LOG</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`w-1.5 h-1.5 rounded-full ${ item.resuelto ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'}`} />
+                            <span className="text-[9px] text-slate-500">{relativeTime(item.created_at)}</span>
+                          </div>
+                        </div>
+                        <div className="text-[10px] font-bold text-white">{item.evento}</div>
+                        <p className="text-[9px] text-slate-400 leading-relaxed">{item.mensaje}</p>
+                        <div className="flex items-center justify-between text-[8px]">
+                          <span className="text-slate-600">{item.origen || 'Sistema'}</span>
+                          <span className={item.resuelto ? 'text-emerald-500 font-black' : 'text-rose-500 font-black'}>
+                            {item.resuelto ? '✓ Resuelto' : '● Pendiente'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+                  // _tipo === 'tarea'
+                  const destIcon =
+                    item.asignado_tipo === 'computer'    ? '🖥' :
+                    item.asignado_tipo === 'swarm'       ? '🤖' :
+                    item.asignado_tipo === 'antigravity' ? '👤' : '⚙';
+                  const tipoIcon = item.tipo === 'operacional' ? '🔧' : '📋';
+                  return (
+                    <div key={`task-${item.codigo||idx}`} className="bg-slate-950 border border-emerald-500/15 rounded-xl p-3 flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="px-1.5 py-0.5 text-[8px] font-black uppercase rounded border bg-emerald-500/10 border-emerald-500/20 text-emerald-400">TAREA ✓</span>
+                          <span className="font-mono text-[9px] text-emerald-400 font-bold">{item.codigo}</span>
+                        </div>
+                        <span className="text-[9px] text-slate-500">{relativeTime(item.fecha_completado)}</span>
+                      </div>
+                      <p className="text-[10px] text-white font-semibold leading-snug">{item.titulo}</p>
+                      <div className="flex items-center gap-1.5 text-[9px] text-slate-500">
+                        <span>{tipoIcon} {item.tipo}</span>
+                        <span>·</span>
+                        <span>{destIcon} {item.asignado_a || item.asignado_tipo || 'Sistema'}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+
           <div className="text-center text-[9px] text-slate-600 font-extrabold uppercase tracking-wider pt-2 border-t border-slate-850">
-            Mission Control v2.7 · Aliun Travel SRL
+            Mission Control v2.8 · Aliun Travel SRL
           </div>
         </div>
       </div>
