@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -19,91 +19,111 @@ const relativeTime = (isoString) => {
   return `Hace ${Math.round(mins / 60)} h`;
 };
 
+// AbortSignal.timeout no existe en Safari < 16 / Chrome < 105
+// Usar un wrapper seguro
+const fetchWithTimeout = (url, opts = {}, ms = 10000) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { ...opts, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+};
+
+// Fechas para RPCs de Ariadne
+const isoToday = () => new Date().toISOString().split('T')[0];
+const isoStartOfMonth = () => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
+};
+const isoStartOfWeek = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - d.getDay());
+  return d.toISOString().split('T')[0];
+};
+
+// ─── Sub-componentes (fuera del componente padre para evitar re-montajes) ───
+
+const StatusDot = ({ state, label, extra }) => {
+  const color = state === 'ok'  ? 'bg-emerald-500' :
+                state === null  ? 'bg-slate-600 animate-pulse' :
+                'bg-rose-500';
+  const text  = state === 'ok'  ? 'text-emerald-400' :
+                state === null  ? 'text-slate-500' :
+                'text-rose-400';
+  return (
+    <div className="bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2">
+      <span className={`w-2 h-2 rounded-full ${color}`} />
+      <span className={text}>{label}: {state === 'ok' ? 'OK' : state === null ? '…' : 'ERROR'}</span>
+      {extra && <span className="text-[10px] text-slate-500">{extra}</span>}
+    </div>
+  );
+};
+
 // ─── Constantes ─────────────────────────────────────────────────────────────
 
-const N8N_HEALTH_URL  = 'https://n8n-n8n.xaruuo.easypanel.host/webhook/mcp-health';
-const N8N_STATUS_URL  = 'https://n8n-n8n.xaruuo.easypanel.host/webhook/n8n-status';
-const POLL_FAST  = 30_000;   // 30 s  — status bar
-const POLL_MED   = 60_000;   // 60 s  — agentes, incidentes, tareas, reservas
-const POLL_SLOW  = 300_000;  // 5 min — tasa dólar
+const N8N_HEALTH_URL = 'https://n8n-n8n.xaruuo.easypanel.host/webhook/mcp-health';
+const N8N_STATUS_URL = 'https://n8n-n8n.xaruuo.easypanel.host/webhook/n8n-status';
+const CHECKIN_URL    = 'https://n8n-n8n.xaruuo.easypanel.host/webhook/agente-checkin';
+const POLL_FAST  = 30_000;
+const POLL_MED   = 60_000;
+const POLL_SLOW  = 300_000;
+const INC_PAGE_SIZE = 6;
 
-// ─── Componente ─────────────────────────────────────────────────────────────
+// ─── Componente principal ────────────────────────────────────────────────────
 
 export const MissionControlLive = () => {
 
-  // ── Tabs ──────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState('workflows');
 
-  // ── System status ─────────────────────────────────────────────────────────
   const [systemStatus, setSystemStatus] = useState({
     mcp: null, n8n: null, supabase: null,
-    mcpVersion: '—', mcpTools: 0,
-    lastChecked: null,
+    mcpVersion: '—', mcpTools: 0, lastChecked: null,
   });
 
-  // ── Datos principales ─────────────────────────────────────────────────────
-  const [agents,       setAgents]       = useState([]);
-  const [n8nWorkflows, setN8nWorkflows] = useState([]);
-  const [n8nFetchState, setN8nFetchState] = useState('idle'); // 'idle'|'loading'|'ok'|'empty'|'error'
+  const [agents,        setAgents]        = useState([]);
+  const [n8nWorkflows,  setN8nWorkflows]  = useState([]);
+  const [n8nFetchState, setN8nFetchState] = useState('idle');
 
-  const [bookingStats, setBookingStats] = useState({
-    total: 0, paid: 0, pending: 0, confirmed: 0, cancelled: 0,
-  });
-  const [criticalNoVoucher, setCriticalNoVoucher] = useState([]);
-  const [warningNoVoucher,  setWarningNoVoucher]  = useState([]);
-  const [recentActivity,    setRecentActivity]    = useState([]);
+  const [bookingStats,       setBookingStats]       = useState({ total:0, paid:0, pending:0, confirmed:0, cancelled:0 });
+  const [criticalNoVoucher,  setCriticalNoVoucher]  = useState([]);
+  const [warningNoVoucher,   setWarningNoVoucher]   = useState([]);
+  const [recentActivity,     setRecentActivity]     = useState([]);
 
-  // ── Incidentes ────────────────────────────────────────────────────────────
-  const [incidentes,        setIncidentes]        = useState([]);
-  const [resumenIncidentes, setResumenIncidentes] = useState({ sin_resolver: 0 });
-  const [incidentePage,     setIncidentePage]     = useState(0);
-  const [mostrarTodos,      setMostrarTodos]      = useState(false);
-  const INC_PAGE_SIZE = 6;
+  const [incidentes,         setIncidentes]         = useState([]);
+  const [resumenIncidentes,  setResumenIncidentes]  = useState({ sin_resolver: 0 });
+  const [incidentePage,      setIncidentePage]      = useState(0);
+  const [mostrarTodos,       setMostrarTodos]       = useState(false);
 
-  // ── Tareas ────────────────────────────────────────────────────────────────
-  const [atlasTasks,  setAtlasTasks]  = useState([]);
-  const [gapTasks,    setGapTasks]    = useState([]);
+  const [atlasTasks, setAtlasTasks] = useState([]);
+  const [gapTasks,   setGapTasks]   = useState([]);
 
-  // ── Tasa dólar ────────────────────────────────────────────────────────────
-  const [tasaActual,   setTasaActual]   = useState(null);
-  const [tasaInput,    setTasaInput]    = useState('');
-  const [tasaGuardando,setTasaGuardando]= useState(false);
-  const [tasaMensaje,  setTasaMensaje]  = useState('');
+  const [tasaActual,    setTasaActual]    = useState(null);
+  const [tasaInput,     setTasaInput]     = useState('');
+  const [tasaGuardando, setTasaGuardando] = useState(false);
+  const [tasaMensaje,   setTasaMensaje]   = useState('');
 
-  // ── Stale payments ────────────────────────────────────────────────────────
-  // NUEVA: pagos estancados en pending_review más de 24h
-  const [stalePayments,     setStalePayments]     = useState([]);
-  const [staleLoading,      setStaleLoading]      = useState(false);
-  const [staleLastFetched,  setStaleLastFetched]  = useState(null);
+  // NUEVA: Stale payments
+  const [stalePayments,    setStalePayments]    = useState([]);
+  const [staleLastFetched, setStaleLastFetched] = useState(null);
 
-  // ── Heartbeat manual ──────────────────────────────────────────────────────
-  // NUEVA: el Director puede forzar un ping de salud sobre cualquier agente
-  const [heartbeatTarget,   setHeartbeatTarget]   = useState('');
-  const [heartbeatSending,  setHeartbeatSending]  = useState(false);
-  const [heartbeatMsg,      setHeartbeatMsg]      = useState('');
-
-  // ── Revenue rápido ────────────────────────────────────────────────────────
-  // NUEVA: revenue_by_period desde las RPCs de Ariadne
+  // NUEVA: Revenue rápido
   const [revenueStats, setRevenueStats] = useState(null);
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // POLLING 1 — Health del sistema (MCP + n8n + Supabase) cada 30 s
-  // ═══════════════════════════════════════════════════════════════════════════
+  // NUEVA: Heartbeat manual
+  const [heartbeatTarget,  setHeartbeatTarget]  = useState('');
+  const [heartbeatSending, setHeartbeatSending] = useState(false);
+  const [heartbeatMsg,     setHeartbeatMsg]     = useState('');
+
+  // ── POLLING 1 — Health del sistema ──────────────────────────────────────
   useEffect(() => {
     const fetchHealth = async () => {
       try {
-        const res  = await fetch(N8N_HEALTH_URL, { signal: AbortSignal.timeout(10_000) });
+        const res  = await fetchWithTimeout(N8N_HEALTH_URL, {}, 10000);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        const mcpOk      = data.status === 'ok';
-        const supabaseOk = data.supabase === 'ok' || data.supabase === 'connected';
-        // n8n: solo verde si el health endpoint dice explícitamente que n8n está ok
-        // (el endpoint mcp-health incluye n8n_ok si está configurado, sino asumimos ok
-        // porque el health mismo proviene de n8n).
-        const n8nOk = res.ok; // si el webhook responde, n8n está vivo
         setSystemStatus({
-          mcp:        mcpOk      ? 'ok'   : 'error',
-          n8n:        n8nOk      ? 'ok'   : 'error',
-          supabase:   supabaseOk ? 'ok'   : 'error',
+          mcp:        data.status === 'ok'                                    ? 'ok' : 'error',
+          supabase:   (data.supabase === 'ok' || data.supabase === 'connected') ? 'ok' : 'error',
+          n8n:        'ok', // si el webhook de n8n responde, n8n está vivo
           mcpVersion: data.version || '—',
           mcpTools:   data.tools   || 0,
           lastChecked: new Date().toLocaleTimeString('es-DO'),
@@ -117,31 +137,24 @@ export const MissionControlLive = () => {
     return () => clearInterval(t);
   }, []);
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // POLLING 2 — Personal IA + Incidentes vía rpc_personal_ia_status cada 60 s
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ── POLLING 2 — Personal IA + Incidentes ────────────────────────────────
   useEffect(() => {
     const fetchPersonal = async () => {
       try {
         const { data, error } = await supabase.rpc('rpc_personal_ia_status');
         if (error) throw error;
-
         const personal = data?.personal || [];
-        setAgents(personal.map(p => {
-          const statusMap = { online: 'Online', idle: 'Busy', error: 'Offline', offline: 'Offline' };
-          return {
-            name:              p.nombre_agente,
-            role:              p.rol + (p.departamento ? ` · ${p.departamento}` : ''),
-            status:            statusMap[p.estado] || 'Offline',
-            lastActive:        relativeTime(p.ultimo_heartbeat),
-            incidentesAbiertos: p.incidentes_abiertos || 0,
-            contenedor:        p.contenedor || null,
-          };
-        }));
-
+        setAgents(personal.map(p => ({
+          name:               p.nombre_agente,
+          role:               p.rol + (p.departamento ? ` · ${p.departamento}` : ''),
+          status:             ({ online:'Online', idle:'Busy', error:'Offline', offline:'Offline' })[p.estado] || 'Offline',
+          lastActive:         relativeTime(p.ultimo_heartbeat),
+          incidentesAbiertos: p.incidentes_abiertos || 0,
+          contenedor:         p.contenedor || null,
+        })));
         setIncidentes(data?.incidentes_recientes || []);
         setResumenIncidentes({ sin_resolver: data?.resumen?.incidentes_sin_resolver || 0 });
-        setIncidentePage(0); // reset paginación cuando llegan datos frescos
+        setIncidentePage(0);
       } catch (err) {
         console.error('rpc_personal_ia_status:', err);
       }
@@ -151,28 +164,19 @@ export const MissionControlLive = () => {
     return () => clearInterval(t);
   }, []);
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // POLLING 3 — n8n Workflows cada 60 s  (G1 FIX)
-  // El webhook /n8n-status es async: responde "Workflow was started" de inmediato.
-  // Solución: hacemos el fetch pero mostramos el estado del intento honestamente.
-  // Cuando el WF de n8n esté arreglado para responder sincrónicamente, este código
-  // ya maneja la respuesta correctamente sin cambios adicionales.
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ── POLLING 3 — n8n Workflows (G1 FIX) ──────────────────────────────────
   useEffect(() => {
     const fetchWorkflows = async () => {
       setN8nFetchState('loading');
       try {
-        const res  = await fetch(N8N_STATUS_URL, { signal: AbortSignal.timeout(12_000) });
+        const res  = await fetchWithTimeout(N8N_STATUS_URL, {}, 12000);
         const data = await res.json();
-
-        // Si el WF está bien configurado devuelve { workflows: [...] }
         if (Array.isArray(data?.workflows) && data.workflows.length > 0) {
           setN8nWorkflows(data.workflows);
           setN8nFetchState('ok');
         } else if (data?.message === 'Workflow was started') {
-          // WF async — todavía no arreglado en n8n
           setN8nWorkflows([]);
-          setN8nFetchState('async_pending'); // estado honesto
+          setN8nFetchState('async_pending');
         } else {
           setN8nWorkflows([]);
           setN8nFetchState('empty');
@@ -187,9 +191,7 @@ export const MissionControlLive = () => {
     return () => clearInterval(t);
   }, []);
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // POLLING 4 — Tasa del dólar cada 5 min
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ── POLLING 4 — Tasa del dólar ───────────────────────────────────────────
   useEffect(() => {
     const fetchTasa = async () => {
       try {
@@ -209,32 +211,25 @@ export const MissionControlLive = () => {
     return () => clearInterval(t);
   }, []);
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // POLLING 5 — KPIs reservas + gaps voucher + actividad reciente + atlas_tasks
-  // G5 FIX: los counts de bookings se hacen en una sola query con SELECT count
-  // particionado; mantenemos las 5 queries separadas hasta que exista una RPC
-  // rpc_booking_stats() en Supabase — anotado como tarea pendiente.
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ── POLLING 5 — KPIs reservas + gaps + actividad + atlas_tasks ───────────
   useEffect(() => {
     const fetchBookings = async () => {
       try {
-        // KPIs — 5 counts (candidato a RPC futura: rpc_booking_stats)
-        const [
-          { count: total },
-          { count: paid },
-          { count: pending },
-          { count: confirmed },
-          { count: cancelled },
-        ] = await Promise.all([
-          supabase.from('bookings').select('*', { count: 'exact', head: true }),
-          supabase.from('bookings').select('*', { count: 'exact', head: true }).eq('payment_status', 'paid'),
-          supabase.from('bookings').select('*', { count: 'exact', head: true }).eq('payment_status', 'pending'),
-          supabase.from('bookings').select('*', { count: 'exact', head: true }).eq('status', 'confirmed'),
-          supabase.from('bookings').select('*', { count: 'exact', head: true }).eq('status', 'cancelled'),
+        const [r1, r2, r3, r4, r5] = await Promise.all([
+          supabase.from('bookings').select('*', { count:'exact', head:true }),
+          supabase.from('bookings').select('*', { count:'exact', head:true }).eq('payment_status','paid'),
+          supabase.from('bookings').select('*', { count:'exact', head:true }).eq('payment_status','pending'),
+          supabase.from('bookings').select('*', { count:'exact', head:true }).eq('status','confirmed'),
+          supabase.from('bookings').select('*', { count:'exact', head:true }).eq('status','cancelled'),
         ]);
-        setBookingStats({ total: total||0, paid: paid||0, pending: pending||0, confirmed: confirmed||0, cancelled: cancelled||0 });
+        setBookingStats({
+          total:     r1.count || 0,
+          paid:      r2.count || 0,
+          pending:   r3.count || 0,
+          confirmed: r4.count || 0,
+          cancelled: r5.count || 0,
+        });
 
-        // Gaps voucher SEV1 + SEV2
         const { data: gapBookings } = await supabase
           .from('bookings')
           .select('id, booking_reference, total_amount, currency, created_at, guest_name, voucher_code, voucher_id')
@@ -246,8 +241,6 @@ export const MissionControlLive = () => {
         const warningList  = gaps.filter(b => (b.voucher_code === null) !== (b.voucher_id === null));
         setCriticalNoVoucher(criticalList);
         setWarningNoVoucher(warningList);
-
-        // Gap tasks para el panel de "Actividad en Vivo"
         setGapTasks([
           ...criticalList.map(b => ({
             id: `GAP-SEV1-${b.booking_reference || b.id.substring(0,6).toUpperCase()}`,
@@ -263,7 +256,6 @@ export const MissionControlLive = () => {
           })),
         ]);
 
-        // Actividad reciente
         const { data: recent } = await supabase
           .from('bookings')
           .select('booking_reference, status, payment_status, created_at, total_amount, currency, guest_name')
@@ -271,14 +263,12 @@ export const MissionControlLive = () => {
           .limit(10);
         setRecentActivity(recent || []);
 
-        // Atlas tasks backlog
         const { data: fetchedTasks } = await supabase
           .from('atlas_tasks')
           .select('codigo, titulo, asignado_a, prioridad, estado, frente, sprint')
           .not('estado', 'in', '("completado","archivado")')
           .order('fecha_encargo', { ascending: false });
         setAtlasTasks(fetchedTasks || []);
-
       } catch (err) {
         console.error('fetchBookings:', err);
       }
@@ -288,23 +278,17 @@ export const MissionControlLive = () => {
     return () => clearInterval(t);
   }, []);
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // POLLING 6 — NUEVA: Stale Payments (pagos estancados > 24 h)
-  // Fuente: RPC stale_payments en Supabase
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ── POLLING 6 — NUEVA: Stale payments ──────────────────────────────────
   useEffect(() => {
     const fetchStale = async () => {
-      setStaleLoading(true);
       try {
         const { data, error } = await supabase.rpc('stale_payments', { p_hours: 24 });
-        if (!error) {
-          setStalePayments(data || []);
+        if (!error && data) {
+          setStalePayments(data);
           setStaleLastFetched(new Date().toLocaleTimeString('es-DO'));
         }
       } catch (err) {
         console.error('stale_payments:', err);
-      } finally {
-        setStaleLoading(false);
       }
     };
     fetchStale();
@@ -312,20 +296,21 @@ export const MissionControlLive = () => {
     return () => clearInterval(t);
   }, []);
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // POLLING 7 — NUEVA: Revenue rápido (revenue_by_period de Ariadne)
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ── POLLING 7 — NUEVA: Revenue rápido (parámetros correctos del RPC) ───
   useEffect(() => {
     const fetchRevenue = async () => {
       try {
-        const [mes, sem] = await Promise.all([
-          supabase.rpc('revenue_by_period', { p_period: 'month' }),
-          supabase.rpc('revenue_by_period', { p_period: 'week'  }),
+        const today     = isoToday();
+        const startMonth = isoStartOfMonth();
+        const startWeek  = isoStartOfWeek();
+        const [rMes, rSem] = await Promise.all([
+          supabase.rpc('revenue_by_period', { p_from_date: startMonth, p_to_date: today }),
+          supabase.rpc('revenue_by_period', { p_from_date: startWeek,  p_to_date: today }),
         ]);
-        if (!mes.error && !sem.error) {
+        if (!rMes.error && !rSem.error) {
           setRevenueStats({
-            month: mes.data?.[0] || null,
-            week:  sem.data?.[0] || null,
+            month: rMes.data?.[0] || null,
+            week:  rSem.data?.[0] || null,
           });
         }
       } catch (err) {
@@ -337,9 +322,7 @@ export const MissionControlLive = () => {
     return () => clearInterval(t);
   }, []);
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // ACCIONES
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ── Acciones ────────────────────────────────────────────────────────────
 
   const handleActualizarIncidente = async (id, campo, valor) => {
     try {
@@ -376,9 +359,7 @@ export const MissionControlLive = () => {
     setTasaMensaje('');
     try {
       const { data, error } = await supabase.rpc('rpc_registrar_tasa_dolar', {
-        p_rate_bp:              valor,
-        p_confirmado_por_nombre: 'finanzas',
-        p_confirmado_via:        'mission_control',
+        p_rate_bp: valor, p_confirmado_por_nombre: 'finanzas', p_confirmado_via: 'mission_control',
       });
       if (error) throw error;
       setTasaActual({ rate_sell: data.rate_final, rate_bp_original: data.rate_bp_original, updated_at: data.vigente_desde });
@@ -392,25 +373,23 @@ export const MissionControlLive = () => {
     }
   };
 
-  // NUEVA: ping manual de heartbeat desde el dashboard
   const handleHeartbeatManual = async () => {
     if (!heartbeatTarget) return;
     setHeartbeatSending(true);
     setHeartbeatMsg('');
     try {
-      const res = await fetch('https://n8n-n8n.xaruuo.easypanel.host/webhook/agente-checkin', {
+      const res = await fetchWithTimeout(CHECKIN_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          accion:        'heartbeat',
-          nombre_agente: heartbeatTarget,
-          tarea_actual:  'ping_manual_director',
-          timestamp:     new Date().toISOString(),
+          accion: 'heartbeat', nombre_agente: heartbeatTarget,
+          tarea_actual: 'ping_manual_director', timestamp: new Date().toISOString(),
         }),
-        signal: AbortSignal.timeout(10_000),
-      });
+      }, 10000);
       const data = await res.json();
-      setHeartbeatMsg(data.success !== false ? `✓ Heartbeat registrado para ${heartbeatTarget}` : `⚠ ${data.error || 'Sin respuesta'}`);
+      setHeartbeatMsg(data.success !== false
+        ? `✓ Heartbeat registrado para ${heartbeatTarget}`
+        : `⚠ ${data.error || 'Sin respuesta'}`);
     } catch {
       setHeartbeatMsg('⚠ No se pudo alcanzar el webhook');
     } finally {
@@ -418,45 +397,26 @@ export const MissionControlLive = () => {
     }
   };
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Incidentes paginados (G3 FIX)
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ── Incidentes paginados ────────────────────────────────────────────────
   const incidentesVisibles = mostrarTodos
     ? incidentes
     : incidentes.slice(incidentePage * INC_PAGE_SIZE, (incidentePage + 1) * INC_PAGE_SIZE);
   const totalPaginas = Math.ceil(incidentes.length / INC_PAGE_SIZE);
 
-  // ─── Dot indicador ────────────────────────────────────────────────────────
-  const StatusDot = ({ state, label, extra }) => {
-    const color = state === 'ok'    ? 'bg-emerald-500' :
-                  state === null    ? 'bg-slate-600 animate-pulse' :
-                  'bg-rose-500';
-    const text  = state === 'ok'    ? 'text-emerald-400' :
-                  state === null    ? 'text-slate-500' :
-                  'text-rose-400';
-    return (
-      <div className="bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2">
-        <span className={`w-2 h-2 rounded-full ${color}`} />
-        <span className={text}>{label}: {state === 'ok' ? 'OK' : state === null ? '…' : 'ERROR'}</span>
-        {extra && <span className="text-[10px] text-slate-500">{extra}</span>}
-      </div>
-    );
-  };
-
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════
   // RENDER
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════
   return (
     <div className="space-y-8 bg-slate-950 p-6 rounded-2xl border border-slate-800 text-slate-100 shadow-2xl">
 
-      {/* ── Banners SEV1 / SEV2 ───────────────────────────────────────────── */}
+      {/* ── Banners SEV1 / SEV2 ─────────────────────────────────────────── */}
       {criticalNoVoucher.length > 0 && (
-        <div className="bg-rose-950/40 border border-rose-500 text-rose-200 p-4 rounded-xl flex flex-col gap-3 animate-pulse shadow-lg">
+        <div className="bg-rose-950/40 border border-rose-500 p-4 rounded-xl flex flex-col gap-3 animate-pulse shadow-lg">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-rose-500/20 flex items-center justify-center text-rose-500 font-extrabold text-xl">🚨</div>
             <div>
               <h4 className="font-extrabold text-white text-base">Brecha SEV1: {criticalNoVoucher.length} reserva(s) pagadas sin voucher</h4>
-              <p className="text-xs text-rose-300">Voucher_code y voucher_id ausentes. Acción requerida en Hermes.</p>
+              <p className="text-xs text-rose-300">voucher_code y voucher_id ausentes. Acción requerida en Hermes.</p>
             </div>
           </div>
           <div className="space-y-2 border-t border-rose-900/60 pt-2.5">
@@ -494,16 +454,14 @@ export const MissionControlLive = () => {
         </div>
       )}
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-900 pb-5">
         <div>
           <h1 className="text-3xl font-black tracking-tight text-white flex items-center gap-3">
             Mission Control
             <span className="text-xs bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full uppercase tracking-wider font-extrabold border border-emerald-500/30">Live</span>
           </h1>
-          <p className="text-slate-400 mt-1 font-medium text-sm">
-            Monitor en tiempo real del ecosistema tecnológico, agentes y base de datos de Aliun Travel.
-          </p>
+          <p className="text-slate-400 mt-1 font-medium text-sm">Monitor en tiempo real del ecosistema tecnológico, agentes y base de datos de Aliun Travel.</p>
           {systemStatus.lastChecked && (
             <p className="text-[10px] text-slate-600 mt-0.5">Última verificación: {systemStatus.lastChecked}</p>
           )}
@@ -511,21 +469,21 @@ export const MissionControlLive = () => {
         <div className="flex flex-wrap items-center gap-2">
           <StatusDot state={systemStatus.mcp}      label="MCP"      extra={systemStatus.mcpVersion !== '—' ? `v${systemStatus.mcpVersion}` : ''} />
           <StatusDot state={systemStatus.supabase} label="Supabase" />
-          <StatusDot state={systemStatus.n8n}      label="n8n"      />
+          <StatusDot state={systemStatus.n8n}      label="n8n" />
           <div className="bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-xs font-bold text-blue-400">
             Tools: {systemStatus.mcpTools}
           </div>
         </div>
       </div>
 
-      {/* ── KPIs Reservas ──────────────────────────────────────────────────── */}
+      {/* ── KPIs Reservas ───────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {[
-          { label: 'Reservas Totales',  value: bookingStats.total,     color: 'text-white' },
-          { label: 'Pendientes Pago',   value: bookingStats.pending,   color: 'text-amber-400' },
-          { label: 'Pagos Aprobados',   value: bookingStats.paid,      color: 'text-emerald-400' },
-          { label: 'Confirmadas',       value: bookingStats.confirmed, color: 'text-blue-400' },
-          { label: 'Canceladas',        value: bookingStats.cancelled, color: 'text-slate-500' },
+          { label:'Reservas Totales', value:bookingStats.total,     color:'text-white'     },
+          { label:'Pendientes Pago',  value:bookingStats.pending,   color:'text-amber-400' },
+          { label:'Pagos Aprobados',  value:bookingStats.paid,      color:'text-emerald-400' },
+          { label:'Confirmadas',      value:bookingStats.confirmed, color:'text-blue-400'  },
+          { label:'Canceladas',       value:bookingStats.cancelled, color:'text-slate-500' },
         ].map(({ label, value, color }) => (
           <div key={label} className="bg-slate-900/60 border border-slate-850 p-4 rounded-xl hover:border-slate-700 transition">
             <div className="text-[10px] uppercase font-bold text-slate-500">{label}</div>
@@ -534,12 +492,12 @@ export const MissionControlLive = () => {
         ))}
       </div>
 
-      {/* ── NUEVA: Revenue rápido ──────────────────────────────────────────── */}
-      {revenueStats && (
+      {/* ── NUEVA: Revenue rápido ────────────────────────────────────────── */}
+      {revenueStats && (revenueStats.month || revenueStats.week) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {[
-            { label: 'Revenue este mes',   data: revenueStats.month },
-            { label: 'Revenue esta semana', data: revenueStats.week  },
+            { label:'Revenue este mes',    data:revenueStats.month },
+            { label:'Revenue esta semana', data:revenueStats.week  },
           ].map(({ label, data }) => (
             <div key={label} className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
               <div>
@@ -547,7 +505,7 @@ export const MissionControlLive = () => {
                 <div className="text-xl font-black text-emerald-400 mt-1">
                   {data ? `USD ${Number(data.total_revenue||0).toLocaleString(undefined,{minimumFractionDigits:2})}` : '—'}
                 </div>
-                {data?.total_deals && (
+                {data && data.total_deals && (
                   <div className="text-[10px] text-slate-500 mt-0.5">{data.total_deals} deal(s)</div>
                 )}
               </div>
@@ -557,7 +515,7 @@ export const MissionControlLive = () => {
         </div>
       )}
 
-      {/* ── Gaps / Incidentes (G3 FIX — con paginación y contador) ────────── */}
+      {/* ── Gaps / Incidentes (G3 FIX) ──────────────────────────────────── */}
       <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <h3 className="font-bold text-white text-lg flex items-center gap-2">
@@ -581,24 +539,15 @@ export const MissionControlLive = () => {
           </div>
         </div>
 
-        {/* Contador de posición */}
         {!mostrarTodos && incidentes.length > INC_PAGE_SIZE && (
           <div className="flex items-center justify-between text-[10px] text-slate-500 font-semibold">
-            <span>
-              Mostrando {Math.min((incidentePage+1)*INC_PAGE_SIZE, incidentes.length)} de {incidentes.length} incidentes
-            </span>
+            <span>Mostrando {Math.min((incidentePage+1)*INC_PAGE_SIZE, incidentes.length)} de {incidentes.length}</span>
             <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setIncidentePage(p => Math.max(0, p-1))}
-                disabled={incidentePage === 0}
-                className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-30 transition text-xs"
-              >←</button>
+              <button onClick={() => setIncidentePage(p => Math.max(0, p-1))} disabled={incidentePage === 0}
+                className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-30 transition text-xs">←</button>
               <span>{incidentePage+1} / {totalPaginas}</span>
-              <button
-                onClick={() => setIncidentePage(p => Math.min(totalPaginas-1, p+1))}
-                disabled={incidentePage >= totalPaginas-1}
-                className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-30 transition text-xs"
-              >→</button>
+              <button onClick={() => setIncidentePage(p => Math.min(totalPaginas-1, p+1))} disabled={incidentePage >= totalPaginas-1}
+                className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-30 transition text-xs">→</button>
             </div>
           </div>
         )}
@@ -613,9 +562,9 @@ export const MissionControlLive = () => {
                 WARNING:  'bg-amber-500/10 border-amber-500/30 text-amber-400',
                 INFO:     'bg-blue-500/10 border-blue-500/30 text-blue-400',
               }[inc.nivel] || 'bg-slate-800 border-slate-700 text-slate-400';
-
+              const borderClass = nivelStyle.split(' ').slice(0,2).join(' ');
               return (
-                <div key={inc.id || i} className={`border p-3 rounded-xl space-y-1.5 bg-slate-950 ${nivelStyle.split(' ').slice(0,2).join(' ')}`}>
+                <div key={inc.id || i} className={`border p-3 rounded-xl space-y-1.5 bg-slate-950 ${borderClass}`}>
                   <div className="flex items-center justify-between">
                     <span className={`px-2 py-0.5 text-[8px] font-black uppercase rounded-md border ${nivelStyle}`}>{inc.nivel}</span>
                     {inc.escalado && <span className="text-[8px] font-black uppercase text-amber-400">ESCALADO</span>}
@@ -630,15 +579,13 @@ export const MissionControlLive = () => {
                   </div>
                   {!inc.resuelto && (
                     <div className="flex gap-1.5 pt-1">
-                      <button
-                        onClick={() => handleActualizarIncidente(inc.id, 'resuelto', true)}
-                        className="flex-1 text-[8px] font-black uppercase py-1.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition"
-                      >✓ Resolver</button>
+                      <button onClick={() => handleActualizarIncidente(inc.id, 'resuelto', true)}
+                        className="flex-1 text-[8px] font-black uppercase py-1.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition">
+                        ✓ Resolver</button>
                       {!inc.escalado && (
-                        <button
-                          onClick={() => handleActualizarIncidente(inc.id, 'escalado', true)}
-                          className="flex-1 text-[8px] font-black uppercase py-1.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-500/20 transition"
-                        >⚠ Escalar</button>
+                        <button onClick={() => handleActualizarIncidente(inc.id, 'escalado', true)}
+                          className="flex-1 text-[8px] font-black uppercase py-1.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-500/20 transition">
+                          ⚠ Escalar</button>
                       )}
                     </div>
                   )}
@@ -649,7 +596,7 @@ export const MissionControlLive = () => {
         )}
       </div>
 
-      {/* ── NUEVA: Stale Payments ─────────────────────────────────────────── */}
+      {/* ── NUEVA: Stale Payments ────────────────────────────────────────── */}
       <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <h3 className="font-bold text-white text-lg flex items-center gap-2">
@@ -662,15 +609,13 @@ export const MissionControlLive = () => {
           </h3>
           <div className="flex items-center gap-2">
             {staleLastFetched && <span className="text-[9px] text-slate-600">Actualizado {staleLastFetched}</span>}
-            <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">+24 h en pending_review</span>
+            <span className="text-[9px] text-slate-500 font-bold uppercase">+24 h en pending_review</span>
           </div>
         </div>
-        {staleLoading && stalePayments.length === 0 ? (
-          <div className="text-xs text-slate-500 text-center py-4 animate-pulse">Verificando pagos...</div>
-        ) : stalePayments.length === 0 ? (
+        {stalePayments.length === 0 ? (
           <div className="text-xs text-emerald-500 text-center py-4 font-semibold">✓ Sin pagos estancados</div>
         ) : (
-          <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-slate-950">
+          <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800">
             {stalePayments.map((p, i) => (
               <div key={i} className="bg-slate-950 border border-amber-500/20 p-3 rounded-xl flex items-center justify-between text-xs">
                 <div>
@@ -687,7 +632,7 @@ export const MissionControlLive = () => {
         )}
       </div>
 
-      {/* ── Tasa del Dólar ────────────────────────────────────────────────── */}
+      {/* ── Tasa del Dólar ──────────────────────────────────────────────── */}
       <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
         <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
           <h3 className="font-bold text-white text-lg">💵 Tasa del Dólar</h3>
@@ -696,30 +641,19 @@ export const MissionControlLive = () => {
         <div className="flex flex-wrap items-end gap-4">
           <div>
             <div className="text-[10px] uppercase font-bold text-slate-500">Vigente</div>
-            <div className="text-2xl font-black text-emerald-400">
-              {tasaActual ? `RD$ ${tasaActual.rate_sell}` : '—'}
-            </div>
+            <div className="text-2xl font-black text-emerald-400">{tasaActual ? `RD$ ${tasaActual.rate_sell}` : '—'}</div>
             {tasaActual?.rate_bp_original && (
-              <div className="text-[9px] text-slate-500 mt-0.5">
-                Banco Popular: {tasaActual.rate_bp_original} · {new Date(tasaActual.updated_at).toLocaleDateString('es-DO')}
-              </div>
+              <div className="text-[9px] text-slate-500 mt-0.5">Banco Popular: {tasaActual.rate_bp_original} · {new Date(tasaActual.updated_at).toLocaleDateString('es-DO')}</div>
             )}
           </div>
           <div className="flex items-end gap-2 flex-1 min-w-[240px]">
             <div className="flex-1">
               <div className="text-[10px] uppercase font-bold text-slate-500 mb-1">Tasa Banco Popular hoy</div>
-              <input
-                type="number" step="0.01" value={tasaInput}
-                onChange={e => setTasaInput(e.target.value)}
-                placeholder="Ej: 59.20"
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500/50"
-              />
+              <input type="number" step="0.01" value={tasaInput} onChange={e => setTasaInput(e.target.value)} placeholder="Ej: 59.20"
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500/50" />
             </div>
-            <button
-              onClick={handleConfirmarTasa}
-              disabled={tasaGuardando}
-              className="px-4 py-2 text-xs font-black uppercase rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25 transition disabled:opacity-50"
-            >
+            <button onClick={handleConfirmarTasa} disabled={tasaGuardando}
+              className="px-4 py-2 text-xs font-black uppercase rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25 transition disabled:opacity-50">
               {tasaGuardando ? '...' : 'Confirmar (+1)'}
             </button>
           </div>
@@ -727,23 +661,18 @@ export const MissionControlLive = () => {
         {tasaMensaje && <div className="text-[10px] text-slate-400 mt-2">{tasaMensaje}</div>}
       </div>
 
-      {/* ── Grid principal: n8n/Agentes | Backlog+Gaps | Actividad ─────────── */}
+      {/* ── Grid principal ────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
-        {/* Columna 1: n8n Services / Agentes IA */}
+        {/* Columna 1: n8n / Agentes IA */}
         <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <button
-              onClick={() => setActiveTab('workflows')}
-              className={`font-bold text-sm transition-all pb-1 border-b-2 ${activeTab === 'workflows' ? 'text-blue-400 border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}
-            >
-              {/* G1 FIX: contador honesto según estado real */}
-              🔄 n8n {n8nFetchState === 'ok' ? `(${n8nWorkflows.length})` : n8nFetchState === 'async_pending' ? '(⚠ async)' : n8nFetchState === 'error' ? '(error)' : '(…)'}
+            <button onClick={() => setActiveTab('workflows')}
+              className={`font-bold text-sm transition-all pb-1 border-b-2 ${activeTab === 'workflows' ? 'text-blue-400 border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}>
+              🔄 n8n {n8nFetchState === 'ok' ? `(${n8nWorkflows.length})` : n8nFetchState === 'async_pending' ? '(⚠)' : n8nFetchState === 'error' ? '(err)' : '(…)'}
             </button>
-            <button
-              onClick={() => setActiveTab('agents')}
-              className={`font-bold text-sm transition-all pb-1 border-b-2 ${activeTab === 'agents' ? 'text-blue-400 border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}
-            >
+            <button onClick={() => setActiveTab('agents')}
+              className={`font-bold text-sm transition-all pb-1 border-b-2 ${activeTab === 'agents' ? 'text-blue-400 border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}>
               🤖 Agentes ({agents.length})
             </button>
           </div>
@@ -759,9 +688,7 @@ export const MissionControlLive = () => {
                       <div className="font-bold text-white text-sm flex items-center gap-2">
                         {agent.name}
                         {agent.incidentesAbiertos > 0 && (
-                          <span className="px-1.5 py-0.5 text-[8px] font-black rounded bg-rose-500/15 text-rose-400 border border-rose-500/20">
-                            {agent.incidentesAbiertos} inc.
-                          </span>
+                          <span className="px-1.5 py-0.5 text-[8px] font-black rounded bg-rose-500/15 text-rose-400 border border-rose-500/20">{agent.incidentesAbiertos} inc.</span>
                         )}
                       </div>
                       <div className="text-[10px] text-slate-500 font-semibold mt-0.5">{agent.role}</div>
@@ -779,7 +706,6 @@ export const MissionControlLive = () => {
                 ))
               )
             ) : (
-              /* G1 FIX: estados honestos para el tab de n8n */
               n8nFetchState === 'ok' ? (
                 n8nWorkflows.map((wf, i) => (
                   <div key={wf.id || i} className="bg-slate-950 border border-slate-850 p-3.5 rounded-xl flex items-center justify-between hover:border-slate-700 transition">
@@ -791,19 +717,17 @@ export const MissionControlLive = () => {
                       <span className={`px-2 py-0.5 text-[8px] font-black uppercase rounded-md border ${
                         wf.status === 'Live' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-500'
                       }`}>{wf.status}</span>
-                      <div className="text-[8px] mt-1 font-extrabold uppercase tracking-wider text-blue-400">{wf.owner}</div>
+                      <div className="text-[8px] mt-1 font-extrabold uppercase text-blue-400">{wf.owner}</div>
                     </div>
                   </div>
                 ))
               ) : n8nFetchState === 'async_pending' ? (
-                <div className="text-center py-8 space-y-3">
-                  <div className="text-amber-400 text-xs font-bold">⚠ Webhook n8n-status configurado en modo async</div>
-                  <p className="text-[10px] text-slate-500 leading-relaxed px-2">
-                    El WF responde <code className="bg-slate-800 px-1 rounded">Workflow was started</code> en lugar del JSON de workflows.<br/>
-                    Fix requerido: agregar nodo <em>Respond to Webhook</em> al final del WF en n8n con{' '}
-                    <code className="bg-slate-800 px-1 rounded">{"{ \"workflows\": [...] }"}</code>.
+                <div className="text-center py-8 space-y-3 px-2">
+                  <div className="text-amber-400 text-xs font-bold">⚠ Webhook n8n-status en modo async</div>
+                  <p className="text-[10px] text-slate-500 leading-relaxed">
+                    Devuelve <code className="bg-slate-800 px-1 rounded">Workflow was started</code>. Fix: agregar nodo <em>Respond to Webhook</em> al final del WF.
                   </p>
-                  <div className="text-[9px] text-slate-600">TASK: TASK-N8N-STATUS-FIX</div>
+                  <div className="text-[9px] text-slate-600 font-mono">TASK-N8N-STATUS-FIX</div>
                 </div>
               ) : n8nFetchState === 'error' ? (
                 <div className="text-center py-8 text-rose-400 text-xs font-bold">Error al contactar n8n</div>
@@ -814,9 +738,8 @@ export const MissionControlLive = () => {
           </div>
         </div>
 
-        {/* Columna 2: Backlog + Gaps de Vouchers (G6 FIX: renombrado) */}
+        {/* Columna 2: Backlog + Gaps de Vouchers */}
         <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-6">
-          {/* Backlog estratégico */}
           <div className="space-y-4">
             <h3 className="font-bold text-white text-base flex items-center justify-between border-b border-slate-800 pb-2">
               <span>📋 Backlog Activo ({atlasTasks.length})</span>
@@ -824,14 +747,11 @@ export const MissionControlLive = () => {
             </h3>
             <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800">
               {atlasTasks.length === 0 ? (
-                <div className="text-center py-6 text-slate-500 text-xs font-semibold">Sin tareas en el backlog activo.</div>
+                <div className="text-center py-6 text-slate-500 text-xs">Sin tareas en el backlog activo.</div>
               ) : (
                 atlasTasks.map(t => (
-                  <div
-                    key={t.codigo}
-                    className="bg-slate-950 border border-slate-850 p-4 rounded-xl flex flex-col space-y-3 hover:border-slate-700 transition"
-                    style={{ borderLeft: `4px solid ${frenteColor(t.frente)}` }}
-                  >
+                  <div key={t.codigo} className="bg-slate-950 border border-slate-850 p-4 rounded-xl flex flex-col space-y-3 hover:border-slate-700 transition"
+                    style={{ borderLeft: `4px solid ${frenteColor(t.frente)}` }}>
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-blue-400 text-xs">{t.codigo}</span>
                       <span className={`px-2 py-0.5 text-[9px] font-black rounded-md ${
@@ -843,14 +763,13 @@ export const MissionControlLive = () => {
                     <p className="text-xs text-white font-semibold leading-relaxed">{t.titulo}</p>
                     <div className="flex items-center justify-between text-[10px] text-slate-500">
                       <span>Asignado: <span className="text-slate-300">{t.asignado_a || 'Sin asignar'}</span></span>
-                      <span className="font-mono text-[9px] uppercase opacity-80">{t.frente}</span>
+                      <span className="font-mono text-[9px] uppercase">{t.frente}</span>
                     </div>
                     <div className="flex items-center justify-between pt-2 border-t border-slate-900/60">
                       <span className="text-[9px] text-slate-500 font-bold uppercase">Sprint: {t.sprint || '—'}</span>
-                      <button
-                        onClick={() => handleCompletarTarea(t.codigo)}
-                        className="text-[9px] font-black uppercase px-2.5 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition"
-                      >✓ Completar</button>
+                      <button onClick={() => handleCompletarTarea(t.codigo)}
+                        className="text-[9px] font-black uppercase px-2.5 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition">
+                        ✓ Completar</button>
                     </div>
                   </div>
                 ))
@@ -858,7 +777,6 @@ export const MissionControlLive = () => {
             </div>
           </div>
 
-          {/* G6 FIX: renombrado a "Gaps de Vouchers" */}
           <div className="space-y-4 pt-4 border-t border-slate-850">
             <h3 className="font-bold text-white text-base flex items-center justify-between border-b border-slate-800 pb-2">
               <span>🎫 Gaps de Vouchers ({gapTasks.length})</span>
@@ -886,8 +804,8 @@ export const MissionControlLive = () => {
           </div>
         </div>
 
-        {/* Columna 3: Registro de Actividad Real */}
-        <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4 flex flex-col">
+        {/* Columna 3: Actividad Reciente */}
+        <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col space-y-4">
           <h3 className="font-bold text-white text-lg border-b border-slate-800 pb-3">📡 Actividad Reciente</h3>
           <div className="bg-slate-950 border border-slate-850 rounded-xl p-4 font-mono text-[10px] space-y-3.5 flex-1 max-h-[360px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800">
             {recentActivity.length === 0 ? (
@@ -918,13 +836,13 @@ export const MissionControlLive = () => {
               ))
             )}
           </div>
-          <div className="pt-4 border-t border-slate-850 text-center text-[9px] text-slate-600 font-extrabold uppercase tracking-wider">
+          <div className="text-center text-[9px] text-slate-600 font-extrabold uppercase tracking-wider pt-2 border-t border-slate-850">
             Mission Control v2.7 · Aliun Travel SRL
           </div>
         </div>
       </div>
 
-      {/* ── NUEVA: Heartbeat Manual del Director ─────────────────────────── */}
+      {/* ── NUEVA: Heartbeat Manual ──────────────────────────────────────── */}
       <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
         <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
           <h3 className="font-bold text-white text-lg">💓 Heartbeat Manual</h3>
@@ -932,26 +850,21 @@ export const MissionControlLive = () => {
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[200px]">
-            <div className="text-[10px] uppercase font-bold text-slate-500 mb-1">Nombre del agente</div>
-            <select
-              value={heartbeatTarget}
-              onChange={e => setHeartbeatTarget(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500/50"
-            >
+            <div className="text-[10px] uppercase font-bold text-slate-500 mb-1">Agente objetivo</div>
+            <select value={heartbeatTarget} onChange={e => setHeartbeatTarget(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500/50">
               <option value="">— Seleccionar agente —</option>
-              {agents.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
               <option value="Hermes Ops">Hermes Ops</option>
               <option value="Hermes Commercial">Hermes Commercial</option>
               <option value="Hermes Marketing">Hermes Marketing</option>
               <option value="Ariadne Data">Ariadne Data</option>
               <option value="Hermes-QA">Hermes-QA</option>
+              {agents.filter(a => !['Hermes Ops','Hermes Commercial','Hermes Marketing','Ariadne Data','Hermes-QA'].includes(a.name))
+                .map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
             </select>
           </div>
-          <button
-            onClick={handleHeartbeatManual}
-            disabled={!heartbeatTarget || heartbeatSending}
-            className="px-4 py-2 text-xs font-black uppercase rounded-lg bg-blue-500/15 border border-blue-500/30 text-blue-400 hover:bg-blue-500/25 transition disabled:opacity-40"
-          >
+          <button onClick={handleHeartbeatManual} disabled={!heartbeatTarget || heartbeatSending}
+            className="px-4 py-2 text-xs font-black uppercase rounded-lg bg-blue-500/15 border border-blue-500/30 text-blue-400 hover:bg-blue-500/25 transition disabled:opacity-40">
             {heartbeatSending ? 'Enviando...' : '💓 Ping'}
           </button>
         </div>
