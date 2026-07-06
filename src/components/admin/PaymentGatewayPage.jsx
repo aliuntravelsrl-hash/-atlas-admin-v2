@@ -470,8 +470,6 @@ export default function PaymentGatewayPage() {
             </button>
           </div>
           {docOk && (
-          </div>
-          {docOk && (
             <div style={{
               marginTop: 8, padding: '10px 14px', borderRadius: 10,
               background: '#05966915', border: '1px solid #05966940',
