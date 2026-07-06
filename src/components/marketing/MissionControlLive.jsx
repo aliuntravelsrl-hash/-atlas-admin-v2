@@ -96,6 +96,17 @@ export const MissionControlLive = () => {
   const [atlasTasks, setAtlasTasks] = useState([]);
   const [gapTasks,   setGapTasks]   = useState([]);
 
+  // ── Mesa de Tareas: filtro + modal ─────────────────────────────────────
+  const [taskFilter,      setTaskFilter]      = useState('all'); // all | swarm | antigravity | computer
+  const [showNewTask,     setShowNewTask]     = useState(false);
+  const [newTask,         setNewTask]         = useState({
+    titulo: '', descripcion: '', tipo: 'proyecto',
+    asignado_tipo: 'computer', asignado_a: 'Computer',
+    prioridad: 'media', frente: 'F2-BACKEND-CORE', sprint: '',
+  });
+  const [newTaskSaving,   setNewTaskSaving]   = useState(false);
+  const [newTaskMsg,      setNewTaskMsg]      = useState('');
+
   const [tasaActual,    setTasaActual]    = useState(null);
   const [tasaInput,     setTasaInput]     = useState('');
   const [tasaGuardando, setTasaGuardando] = useState(false);
@@ -265,7 +276,7 @@ export const MissionControlLive = () => {
 
         const { data: fetchedTasks } = await supabase
           .from('atlas_tasks')
-          .select('codigo, titulo, asignado_a, prioridad, estado, frente, sprint')
+          .select('codigo, titulo, descripcion, asignado_a, asignado_tipo, prioridad, estado, tipo, frente, sprint, bloqueado, bloqueo_razon')
           .not('estado', 'in', '("completado","archivado")')
           .order('fecha_encargo', { ascending: false });
         setAtlasTasks(fetchedTasks || []);
@@ -370,6 +381,43 @@ export const MissionControlLive = () => {
       console.error(err);
     } finally {
       setTasaGuardando(false);
+    }
+  };
+
+  const handleCrearTarea = async () => {
+    if (!newTask.titulo.trim()) { setNewTaskMsg('El título es requerido'); return; }
+    setNewTaskSaving(true);
+    setNewTaskMsg('');
+    try {
+      const { error } = await supabase.rpc('rpc_crear_tarea', {
+        p_titulo:             newTask.titulo.trim(),
+        p_descripcion:        newTask.descripcion.trim() || null,
+        p_tipo:               newTask.tipo,
+        p_asignado_tipo:      newTask.asignado_tipo,
+        p_asignado_a:         newTask.asignado_a.trim() || null,
+        p_prioridad:          newTask.prioridad,
+        p_frente:             newTask.frente || null,
+        p_sprint:             newTask.sprint.trim() || null,
+        p_bloqueado:          false,
+        p_bloqueo_razon:      null,
+        p_origen_incidente_id: null,
+      });
+      if (error) throw error;
+      // Refrescar lista
+      const { data: fetchedTasks } = await supabase
+        .from('atlas_tasks')
+        .select('codigo, titulo, descripcion, asignado_a, asignado_tipo, prioridad, estado, tipo, frente, sprint, bloqueado, bloqueo_razon')
+        .not('estado', 'in', '("completado","archivado")')
+        .order('fecha_encargo', { ascending: false });
+      setAtlasTasks(fetchedTasks || []);
+      setNewTask({ titulo: '', descripcion: '', tipo: 'proyecto', asignado_tipo: 'computer', asignado_a: 'Computer', prioridad: 'media', frente: 'F2-BACKEND-CORE', sprint: '' });
+      setShowNewTask(false);
+      setNewTaskMsg('');
+    } catch (err) {
+      setNewTaskMsg('Error al crear tarea: ' + err.message);
+      console.error('rpc_crear_tarea:', err);
+    } finally {
+      setNewTaskSaving(false);
     }
   };
 
@@ -738,70 +786,248 @@ export const MissionControlLive = () => {
           </div>
         </div>
 
-        {/* Columna 2: Backlog + Gaps de Vouchers */}
-        <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-6">
-          <div className="space-y-4">
-            <h3 className="font-bold text-white text-base flex items-center justify-between border-b border-slate-800 pb-2">
-              <span>📋 Backlog Activo ({atlasTasks.length})</span>
-              <span className="text-[9px] text-slate-500 font-bold uppercase">atlas_tasks</span>
+        {/* Columna 2: Mesa de Tareas */}
+        <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
+
+          {/* Header Mesa de Tareas */}
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <h3 className="font-bold text-white text-base flex items-center gap-2">
+              📋 Mesa de Tareas
+              <span className="px-2 py-0.5 text-[9px] font-black rounded-md bg-slate-800 border border-slate-700 text-slate-400">
+                {atlasTasks.filter(t => taskFilter === 'all' || t.asignado_tipo === taskFilter || (taskFilter === 'computer' && !t.asignado_tipo)).length}
+              </span>
             </h3>
-            <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800">
-              {atlasTasks.length === 0 ? (
-                <div className="text-center py-6 text-slate-500 text-xs">Sin tareas en el backlog activo.</div>
-              ) : (
-                atlasTasks.map(t => (
-                  <div key={t.codigo} className="bg-slate-950 border border-slate-850 p-4 rounded-xl flex flex-col space-y-3 hover:border-slate-700 transition"
-                    style={{ borderLeft: `4px solid ${frenteColor(t.frente)}` }}>
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-blue-400 text-xs">{t.codigo}</span>
-                      <span className={`px-2 py-0.5 text-[9px] font-black rounded-md ${
-                        t.prioridad === 'alta'  ? 'bg-rose-500/10 border border-rose-500/20 text-rose-500' :
-                        t.prioridad === 'media' ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500' :
-                                                  'bg-blue-500/10 border border-blue-500/20 text-blue-500'
-                      }`}>{(t.prioridad||'media').toUpperCase()}</span>
-                    </div>
-                    <p className="text-xs text-white font-semibold leading-relaxed">{t.titulo}</p>
-                    <div className="flex items-center justify-between text-[10px] text-slate-500">
-                      <span>Asignado: <span className="text-slate-300">{t.asignado_a || 'Sin asignar'}</span></span>
-                      <span className="font-mono text-[9px] uppercase">{t.frente}</span>
-                    </div>
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-900/60">
-                      <span className="text-[9px] text-slate-500 font-bold uppercase">Sprint: {t.sprint || '—'}</span>
-                      <button onClick={() => handleCompletarTarea(t.codigo)}
-                        className="text-[9px] font-black uppercase px-2.5 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition">
-                        ✓ Completar</button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+            <button
+              onClick={() => { setShowNewTask(v => !v); setNewTaskMsg(''); }}
+              className="flex items-center gap-1.5 text-[10px] font-black uppercase px-3 py-1.5 rounded-lg bg-blue-500/15 border border-blue-500/30 text-blue-400 hover:bg-blue-500/25 transition">
+              {showNewTask ? '✕ Cancelar' : '+ Nueva Tarea'}
+            </button>
           </div>
 
-          <div className="space-y-4 pt-4 border-t border-slate-850">
-            <h3 className="font-bold text-white text-base flex items-center justify-between border-b border-slate-800 pb-2">
-              <span>🎫 Gaps de Vouchers ({gapTasks.length})</span>
-              <span className="text-[9px] text-slate-500 font-bold uppercase">SEV1 / SEV2</span>
-            </h3>
-            <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800">
-              {gapTasks.length === 0 ? (
-                <div className="text-center py-6 text-emerald-500 text-xs font-semibold">✓ Sin gaps de vouchers.</div>
-              ) : (
-                gapTasks.map((task, i) => (
-                  <div key={i} className="bg-slate-950 border border-slate-850 p-4 rounded-xl space-y-2 hover:border-slate-700 transition">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-400 text-xs">{task.id}</span>
-                      <span className={`px-2 py-0.5 text-[9px] font-black rounded-md ${
-                        task.priority === 'SEV1' ? 'bg-rose-500/10 border border-rose-500/20 text-rose-500' :
-                                                   'bg-amber-500/10 border border-amber-500/20 text-amber-500'
-                      }`}>{task.priority}</span>
-                    </div>
-                    <p className="text-xs text-white font-semibold leading-relaxed">{task.description}</p>
-                    <div className={`text-[10px] font-bold uppercase ${task.priority === 'SEV1' ? 'text-rose-400' : 'text-amber-400'}`}>{task.status}</div>
-                  </div>
-                ))
-              )}
-            </div>
+          {/* Filtros por destinatario */}
+          <div className="flex flex-wrap gap-1.5">
+            {[
+              { key: 'all',         label: 'Todas',       color: 'text-slate-300 border-slate-600' },
+              { key: 'computer',    label: '🖥 Computer',  color: 'text-blue-400 border-blue-500/40' },
+              { key: 'swarm',       label: '🤖 Swarm',     color: 'text-violet-400 border-violet-500/40' },
+              { key: 'antigravity', label: '👤 Director',  color: 'text-amber-400 border-amber-500/40' },
+            ].map(f => (
+              <button key={f.key}
+                onClick={() => setTaskFilter(f.key)}
+                className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-md border transition ${
+                  taskFilter === f.key
+                    ? `bg-slate-700 ${f.color}`
+                    : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600'
+                }`}>
+                {f.label}
+              </button>
+            ))}
           </div>
+
+          {/* Form Nueva Tarea (inline collapsible) */}
+          {showNewTask && (
+            <div className="bg-slate-950 border border-blue-500/20 rounded-xl p-4 space-y-3">
+              <div className="text-[10px] font-black uppercase text-blue-400 mb-1">Nueva Tarea</div>
+
+              <input
+                type="text"
+                value={newTask.titulo}
+                onChange={e => setNewTask(p => ({ ...p, titulo: e.target.value }))}
+                placeholder="Título de la tarea *"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-blue-500/50 placeholder:text-slate-600"
+              />
+              <textarea
+                value={newTask.descripcion}
+                onChange={e => setNewTask(p => ({ ...p, descripcion: e.target.value }))}
+                placeholder="Descripción (opcional)"
+                rows={2}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-blue-500/50 placeholder:text-slate-600 resize-none"
+              />
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <div className="text-[9px] text-slate-500 font-bold uppercase mb-1">Tipo</div>
+                  <select value={newTask.tipo} onChange={e => setNewTask(p => ({ ...p, tipo: e.target.value }))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-[11px] focus:outline-none">
+                    <option value="proyecto">📋 Proyecto</option>
+                    <option value="operacional">🔧 Operacional</option>
+                  </select>
+                </div>
+                <div>
+                  <div className="text-[9px] text-slate-500 font-bold uppercase mb-1">Prioridad</div>
+                  <select value={newTask.prioridad} onChange={e => setNewTask(p => ({ ...p, prioridad: e.target.value }))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-[11px] focus:outline-none">
+                    <option value="alta">🔴 Alta</option>
+                    <option value="media">🟡 Media</option>
+                    <option value="baja">🟢 Baja</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <div className="text-[9px] text-slate-500 font-bold uppercase mb-1">Destinatario</div>
+                  <select value={newTask.asignado_tipo}
+                    onChange={e => {
+                      const tipo = e.target.value;
+                      const defaults = { computer: 'Computer', swarm: 'Hermes Ops', antigravity: 'Director' };
+                      setNewTask(p => ({ ...p, asignado_tipo: tipo, asignado_a: defaults[tipo] || '' }));
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-[11px] focus:outline-none">
+                    <option value="computer">🖥 Computer</option>
+                    <option value="swarm">🤖 Swarm</option>
+                    <option value="antigravity">👤 Director</option>
+                  </select>
+                </div>
+                <div>
+                  <div className="text-[9px] text-slate-500 font-bold uppercase mb-1">Agente / Owner</div>
+                  <input type="text" value={newTask.asignado_a}
+                    onChange={e => setNewTask(p => ({ ...p, asignado_a: e.target.value }))}
+                    placeholder="Ej: Hermes Commercial"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-[11px] focus:outline-none placeholder:text-slate-600" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <div className="text-[9px] text-slate-500 font-bold uppercase mb-1">Frente</div>
+                  <select value={newTask.frente} onChange={e => setNewTask(p => ({ ...p, frente: e.target.value }))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-[11px] focus:outline-none">
+                    <option value="F1-FRONTEND">F1 Frontend</option>
+                    <option value="F2-BACKEND-CORE">F2 Backend Core</option>
+                    <option value="F3-ATRACCION">F3 Atracción</option>
+                    <option value="F4-RRHH-IA">F4 RRHH-IA</option>
+                    <option value="F5-SEGURIDAD">F5 Seguridad</option>
+                  </select>
+                </div>
+                <div>
+                  <div className="text-[9px] text-slate-500 font-bold uppercase mb-1">Sprint</div>
+                  <input type="text" value={newTask.sprint}
+                    onChange={e => setNewTask(p => ({ ...p, sprint: e.target.value }))}
+                    placeholder="Ej: S-JUL-2026"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-[11px] focus:outline-none placeholder:text-slate-600" />
+                </div>
+              </div>
+
+              {newTaskMsg && (
+                <div className={`text-[10px] font-semibold ${
+                  newTaskMsg.startsWith('Error') ? 'text-rose-400' : 'text-emerald-400'
+                }`}>{newTaskMsg}</div>
+              )}
+              <button onClick={handleCrearTarea} disabled={newTaskSaving || !newTask.titulo.trim()}
+                className="w-full text-[10px] font-black uppercase py-2 rounded-lg bg-blue-500/15 border border-blue-500/30 text-blue-400 hover:bg-blue-500/25 transition disabled:opacity-40">
+                {newTaskSaving ? 'Guardando...' : '+ Crear Tarea'}
+              </button>
+            </div>
+          )}
+
+          {/* Lista de tareas filtradas */}
+          <div className="space-y-2.5 max-h-[480px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800">
+            {(() => {
+              const filtered = atlasTasks.filter(t =>
+                taskFilter === 'all' ||
+                t.asignado_tipo === taskFilter ||
+                (taskFilter === 'computer' && !t.asignado_tipo)
+              );
+              if (filtered.length === 0) return (
+                <div className="text-center py-8 text-slate-500 text-xs">Sin tareas para este filtro.</div>
+              );
+              return filtered.map(t => {
+                const tipoIcon = t.tipo === 'operacional' ? '🔧' : '📋';
+                const tipoColor = t.tipo === 'operacional'
+                  ? 'bg-orange-500/10 border-orange-500/20 text-orange-400'
+                  : 'bg-slate-800 border-slate-700 text-slate-400';
+                const destColor =
+                  t.asignado_tipo === 'computer'    ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' :
+                  t.asignado_tipo === 'swarm'       ? 'bg-violet-500/10 border-violet-500/20 text-violet-400' :
+                  t.asignado_tipo === 'antigravity' ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' :
+                                                     'bg-slate-800 border-slate-700 text-slate-500';
+                const destLabel =
+                  t.asignado_tipo === 'computer'    ? '🖥 Computer' :
+                  t.asignado_tipo === 'swarm'       ? '🤖 Swarm' :
+                  t.asignado_tipo === 'antigravity' ? '👤 Director' :
+                                                     '— sin clasificar';
+                return (
+                  <div key={t.codigo}
+                    className="bg-slate-950 rounded-xl flex flex-col space-y-2.5 hover:border-slate-700 transition p-3.5 border"
+                    style={{ borderLeft: `3px solid ${frenteColor(t.frente)}`, borderTop: '1px solid rgb(30 41 59)', borderRight: '1px solid rgb(30 41 59)', borderBottom: '1px solid rgb(30 41 59)' }}>
+
+                    {/* Fila superior: código + prioridad + bloqueado */}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-blue-400 text-xs font-mono">{t.codigo}</span>
+                      <div className="flex items-center gap-1.5">
+                        {t.bloqueado && (
+                          <span className="px-1.5 py-0.5 text-[8px] font-black rounded bg-rose-500/15 border border-rose-500/20 text-rose-400" title={t.bloqueo_razon || 'Bloqueado'}>🔒 BLOQ</span>
+                        )}
+                        <span className={`px-2 py-0.5 text-[8px] font-black rounded-md border ${
+                          t.prioridad === 'alta'  ? 'bg-rose-500/10 border-rose-500/20 text-rose-500' :
+                          t.prioridad === 'media' ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' :
+                                                    'bg-blue-500/10 border-blue-500/20 text-blue-500'
+                        }`}>{(t.prioridad||'media').toUpperCase()}</span>
+                      </div>
+                    </div>
+
+                    {/* Título */}
+                    <p className="text-xs text-white font-semibold leading-snug">{t.titulo}</p>
+
+                    {/* Descripción (si existe) */}
+                    {t.descripcion && (
+                      <p className="text-[10px] text-slate-400 leading-relaxed border-l-2 border-slate-800 pl-2">{t.descripcion}</p>
+                    )}
+
+                    {/* Bloqueo reason */}
+                    {t.bloqueado && t.bloqueo_razon && (
+                      <p className="text-[9px] text-rose-400/80 bg-rose-950/20 border border-rose-900/30 rounded px-2 py-1">🔒 {t.bloqueo_razon}</p>
+                    )}
+
+                    {/* Fila de meta: tipo + destinatario */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`px-2 py-0.5 text-[8px] font-black rounded border ${tipoColor}`}>{tipoIcon} {t.tipo||'proyecto'}</span>
+                      <span className={`px-2 py-0.5 text-[8px] font-black rounded border ${destColor}`}>{destLabel}</span>
+                      {t.asignado_a && t.asignado_a !== destLabel.replace(/^[^ ]+ /, '') && (
+                        <span className="text-[9px] text-slate-500">→ {t.asignado_a}</span>
+                      )}
+                    </div>
+
+                    {/* Fila inferior: frente + sprint + botón completar */}
+                    <div className="flex items-center justify-between pt-1.5 border-t border-slate-900/60">
+                      <div className="flex items-center gap-2 text-[9px] text-slate-500 font-bold">
+                        <span style={{ color: frenteColor(t.frente) }}>{t.frente || '—'}</span>
+                        {t.sprint && <span>· {t.sprint}</span>}
+                      </div>
+                      <button onClick={() => handleCompletarTarea(t.codigo)}
+                        className="text-[9px] font-black uppercase px-2.5 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition">
+                        ✓ Hecho
+                      </button>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+
+          {/* Gaps de Vouchers (compacto, separado) */}
+          {gapTasks.length > 0 && (
+            <div className="space-y-3 pt-4 border-t border-slate-850">
+              <h4 className="font-bold text-white text-sm flex items-center justify-between">
+                <span>🎫 Gaps de Vouchers ({gapTasks.length})</span>
+                <span className="text-[9px] text-slate-500 font-bold uppercase">SEV1/SEV2</span>
+              </h4>
+              {gapTasks.map((task, i) => (
+                <div key={i} className="bg-slate-950 border border-slate-850 p-3 rounded-xl space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-400 text-xs">{task.id}</span>
+                    <span className={`px-2 py-0.5 text-[8px] font-black rounded-md border ${
+                      task.priority === 'SEV1' ? 'bg-rose-500/10 border-rose-500/20 text-rose-500' :
+                                                 'bg-amber-500/10 border-amber-500/20 text-amber-500'
+                    }`}>{task.priority}</span>
+                  </div>
+                  <p className="text-[10px] text-white leading-relaxed">{task.description}</p>
+                  <div className={`text-[9px] font-bold uppercase ${task.priority === 'SEV1' ? 'text-rose-400' : 'text-amber-400'}`}>{task.status}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Columna 3: Actividad Reciente */}
