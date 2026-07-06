@@ -283,8 +283,8 @@ export const MissionControlLive = () => {
     const fetchStale = async () => {
       try {
         const { data, error } = await supabase.rpc('stale_payments', { p_hours: 24 });
-        if (!error && data) {
-          setStalePayments(data);
+        if (!error) {
+          setStalePayments(Array.isArray(data) ? data : []);
           setStaleLastFetched(new Date().toLocaleTimeString('es-DO'));
         }
       } catch (err) {
