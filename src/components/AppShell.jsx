@@ -30,7 +30,69 @@ import AdminSalesPage from '../pages/admin/AdminSalesPage'
 import AdminExcursionsPage from '../pages/admin/AdminExcursionsPage'
 
 import { AdminAuthProvider } from '@/contexts/AdminAuthContext'
+import React from 'react'
 
+// ── ErrorBoundary para capturar errores de render en /mission ────────────────
+class MissionErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null, info: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    this.setState({ info });
+    console.error('[MissionControl ErrorBoundary]', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          background: '#0f172a', color: '#f1f5f9', padding: '2rem',
+          borderRadius: '1rem', border: '1px solid #ef4444', margin: '1rem',
+          fontFamily: 'monospace', fontSize: '13px'
+        }}>
+          <h2 style={{ color: '#ef4444', marginBottom: '1rem', fontSize: '18px' }}>
+            ⚠ Mission Control — Error de Render
+          </h2>
+          <pre style={{
+            background: '#1e293b', padding: '1rem', borderRadius: '0.5rem',
+            overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+            color: '#fca5a5', marginBottom: '1rem'
+          }}>
+            {this.state.error?.toString()}
+          </pre>
+          {this.state.info?.componentStack && (
+            <details>
+              <summary style={{ color: '#94a3b8', cursor: 'pointer', marginBottom: '0.5rem' }}>
+                Component Stack
+              </summary>
+              <pre style={{
+                background: '#1e293b', padding: '1rem', borderRadius: '0.5rem',
+                overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                color: '#94a3b8', fontSize: '11px'
+              }}>
+                {this.state.info.componentStack}
+              </pre>
+            </details>
+          )}
+          <button
+            onClick={() => this.setState({ hasError: false, error: null, info: null })}
+            style={{
+              marginTop: '1rem', padding: '0.5rem 1.5rem', background: '#3b82f6',
+              color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer',
+              fontWeight: 'bold', fontSize: '13px'
+            }}
+          >
+            Reintentar
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export function AppShell() {
   return (
@@ -47,7 +109,11 @@ export function AppShell() {
               <Route path="dashboard26" element={<BookingOpsPanel />} />
               <Route path="warroom" element={<WarRoomV41 />} />
               <Route path="integrity" element={<IntegrityMonitor />} />
-              <Route path="mission" element={<MissionControlLive />} />
+              <Route path="mission" element={
+                <MissionErrorBoundary>
+                  <MissionControlLive />
+                </MissionErrorBoundary>
+              } />
               <Route path="crm/pipeline" element={<PipelineKanban />} />
               <Route path="crm/dashboard" element={<CrmDashboard />} />
               <Route path="api-toolbox" element={<ApiToolbox />} />
