@@ -1517,15 +1517,19 @@ const AdminBookingsPanel = () => {
                     )}
 
                     {/* Botón inteligente — documento oficial según estado */}
+                    {/* FIX 2026-07-08 (ATLAS-TECH): se llamaba con [] hardcodeado en vez de
+                        abonoPayments (los pagos reales ya cargados por handleOpenDetail), por
+                        lo que getDocType() siempre calculaba paid=0 y el botón nunca detectaba
+                        "pagado completo" — solo alternaba Cotización/Confirmación, jamás Voucher. */}
                     <Button
                       className="w-full bg-yellow-600 hover:bg-yellow-500 text-white font-bold text-sm py-5 gap-2 mt-2"
-                      onClick={() => handleGenerarDocumento(selectedBooking, [])}
+                      onClick={() => handleGenerarDocumento(selectedBooking, abonoPayments)}
                       disabled={generandoDoc}
                     >
                       {generandoDoc ? (
                         <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>Generando...</>
                       ) : (() => {
-                        const dt = getDocType(selectedBooking, [])
+                        const dt = getDocType(selectedBooking, abonoPayments)
                         const isExc = selectedBooking.booking_type === 'excursion'
                         if (dt === 'voucher')       return isExc ? '🌊 Voucher Excursión' : '🏨 Voucher Hotel'
                         if (dt === 'confirmacion')  return isExc ? '✅ Confirmación Exc.' : '✅ Confirmación'
