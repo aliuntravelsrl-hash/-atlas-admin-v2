@@ -53,7 +53,15 @@ const WF_RECIBO         = `${N8N_BASE}/aliun-recibo-abono`
 
 // ── Utilidades ───────────────────────────────────────────────
 const fmt = (n) => parseFloat(n || 0).toFixed(2)
-const genRef = () => 'ALN-' + Date.now().toString(36).toUpperCase().slice(-6)
+// FIX 2026-07-08 (ATLAS-TECH): antes usaba solo Date.now(), que colisiona
+// cuando se generan varias referencias en el mismo milisegundo (reservas
+// grupales con rows.map). Esto provocaba violación del UNIQUE(booking_reference)
+// y el rollback silencioso de TODO el insert grupal. Ahora se agrega un
+// componente aleatorio por llamada para garantizar unicidad dentro del batch.
+const genRef = () => {
+  const rand = Math.random().toString(36).toUpperCase().slice(2, 5)
+  return 'ALN-' + Date.now().toString(36).toUpperCase().slice(-4) + rand
+}
 const calcNights = (ci, co) =>
   ci && co ? Math.round((new Date(co) - new Date(ci)) / 86400000) : 0
 
@@ -323,11 +331,33 @@ function TabNuevaReserva({ hotels, onCreated, onError }) {
     setLoading(true)
     const hotel = hotels.find(h => h.id === form.hotel_id)
     const groupId = isGrupal ? crypto.randomUUID() : null
-    const depositoPorHab = isGrupal && dep > 0 ? dep / habitaciones.length : dep
+    const depositoPorHabRaw = isGrupal && dep > 0 ? dep / habitaciones.length : dep
+    // FIX 2026-07-08 (ATLAS-TECH): el depósito se ingresa en la moneda mostrada
+    // en el label (getCurrency(nationality)), pero deposit_amount debe guardarse
+    // en USD canónico (mismo patrón que TabPago/atlas_payments), y
+    // deposit_amount_dop en su equivalente DOP.
+    const monedaDeposito = getCurrency(form.nationality)
+    const depositoUsdPorHab = monedaDeposito === 'DOP'
+      ? toUSD(depositoPorHabRaw, form.nationality, EXCHANGE_RATE)
+      : depositoPorHabRaw
+    const depositoDopPorHab = monedaDeposito === 'DOP'
+      ? Math.round(depositoPorHabRaw)
+      : Math.round(depositoPorHabRaw * EXCHANGE_RATE)
 
+    // FIX 2026-07-08 (ATLAS-TECH): antes esta rama guardaba currency:'USD'
+    // y total_amount_dop siempre como precioHab*rate, sin importar la
+    // nacionalidad — a pesar de que el label del input (priceLbl en
+    // HabitacionBlock) le pide al operador el precio en la moneda correcta
+    // según nacionalidad (DOP para 'DO', USD para el resto). Ahora se replica
+    // el mismo patrón ya usado y verificado en TabExcursion: total_amount
+    // guarda siempre el equivalente USD canónico, total_amount_dop el
+    // equivalente DOP, y currency refleja la moneda real que el cliente ve.
     const rows = habitaciones.map((hab, i) => {
       const room = rooms.find(r => r.id === hab.room_id)
       const precioHab = parseFloat(hab.precio) || 0
+      const monedaHab = getCurrency(form.nationality)
+      const totalUsdHab = monedaHab === 'DOP' ? toUSD(precioHab, form.nationality, EXCHANGE_RATE) : precioHab
+      const totalDopHab = monedaHab === 'DOP' ? Math.round(precioHab) : Math.round(precioHab * EXCHANGE_RATE)
       return {
         booking_reference:   genRef(),
         hotel_id:            form.hotel_id,
@@ -344,16 +374,18 @@ function TabNuevaReserva({ hotels, onCreated, onError }) {
         adults:              parseInt(hab.adults) || 1,
         children:            parseInt(hab.children) || 0,
         infants:             parseInt(hab.infants) || 0,
-        total_amount:        precioHab,
-        currency:            'USD',
-        total_amount_dop:    Math.round(precioHab * EXCHANGE_RATE),
+        total_amount:        totalUsdHab,
+        currency:            monedaHab,
+        total_amount_dop:    totalDopHab,
         exchange_rate:       EXCHANGE_RATE,
-        deposit_amount:      depositoPorHab > 0 ? depositoPorHab : null,
+        deposit_amount:      depositoUsdPorHab > 0 ? depositoUsdPorHab : null,
+        deposit_amount_dop:  depositoDopPorHab > 0 ? depositoDopPorHab : null,
         payment_method:      form.payment_method || null,
         payment_status:      'unpaid',
         status:              'pending_validation',
         booking_type:        isGrupal ? 'group' : 'individual',
-        source:              'manual_admin',
+        booking_source:      'admin_manual',
+        source:              'admin_manual',
         internal_notes:      form.internal_notes || null,
         group_id:            groupId,
         group_room_number:   isGrupal ? i + 1 : null,
@@ -772,39 +804,58 @@ function TabRecibo({ bookings, hotels, initialBookingId = '' }) {
   const [bookingId, setBookingId] = useState(initialBookingId)
   const [payments,  setPayments]  = useState([])
   const [loading,   setLoading]   = useState(false)
-  const RATE = 61 // fallback seguro
+  // FIX 2026-07-08 (ATLAS-TECH): antes usaba una tasa hardcodeada (RATE=61)
+  // solo para el display. Ahora usa la tasa dinamica del hook (misma fuente
+  // que el resto del panel) como fallback, priorizando el exchange_rate real
+  // guardado en la reserva cuando existe.
+  const { rate: EXCHANGE_RATE } = useExchangeRate()
 
   // Pre-seleccionar cuando viene del listado
   useEffect(() => {
     if (initialBookingId) setBookingId(initialBookingId)
   }, [initialBookingId])
 
-  // Cargar pagos cuando cambia el booking
+  const booking = bookings.find(b => b.id === bookingId) || null
+
+  // FIX 2026-07-08 (ATLAS-TECH): TabRecibo solo conocia UNA habitacion por id,
+  // asi que un recibo de reserva grupal (varias filas con el mismo group_id)
+  // mostraba y enviaba a Gotenberg solo los datos de una habitacion, no el
+  // total consolidado del grupo. Ahora, si la reserva tiene group_id, se
+  // agrupan todas las filas hermanas para totales y pagos.
+  const groupRows = booking?.group_id
+    ? bookings.filter(b => b.group_id === booking.group_id)
+    : (booking ? [booking] : [])
+  const isGroupReceipt = groupRows.length > 1
+  const groupBookingIds = groupRows.map(b => b.id)
+
+  // Cargar pagos cuando cambia el booking (o su grupo completo)
   useEffect(() => {
-    if (!bookingId) { setPayments([]); return }
+    if (!bookingId || groupBookingIds.length === 0) { setPayments([]); return }
     setLoading(true)
     supabaseAdmin
       .from('atlas_payments')
       .select('*')
-      .eq('booking_id', bookingId)
+      .in('booking_id', groupBookingIds)
       .order('created_at', { ascending: true })
       .then(({ data }) => { setPayments(data || []); setLoading(false) })
-  }, [bookingId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingId, groupRows.length])
 
-  const booking = bookings.find(b => b.id === bookingId) || null
-  const hotel   = booking ? (hotels.find(h => h.id === booking.hotel_id) || null) : null
-  const total   = parseFloat(booking?.total_amount || 0)
-  const paid    = payments.reduce((s, p) => s + parseFloat(p.amount || 0), 0)
-  const balance = total - paid
-  const fmt     = n => parseFloat(n || 0).toFixed(2)
-  const fmtDOP  = n => Math.round(parseFloat(n || 0) * RATE).toLocaleString('es-DO')
+  const hotel    = booking ? (hotels.find(h => h.id === booking.hotel_id) || null) : null
+  const currency = booking?.currency || 'USD'  // moneda REAL de la reserva, no hardcodeada
+  const rate     = parseFloat(booking?.exchange_rate) || EXCHANGE_RATE
+  const total    = groupRows.reduce((s, b) => s + parseFloat(b.total_amount || 0), 0)
+  const totalDop = groupRows.reduce((s, b) => s + parseFloat(b.total_amount_dop || 0), 0)
+  const paid     = payments.reduce((s, p) => s + parseFloat(p.amount || 0), 0)
+  const balance  = total - paid
+  const fmt      = n => parseFloat(n || 0).toFixed(2)
+  const fmtDOP   = n => Math.round(parseFloat(n || 0) * rate).toLocaleString('es-DO')
+  const money    = n => currency === 'DOP'
+    ? `RD$ ${Math.round(parseFloat(n || 0)).toLocaleString('es-DO')}`
+    : `$${fmt(n)} USD`
 
   const handleImprimir = async () => {
     if (!booking) return
-    const fmt = n => parseFloat(n || 0).toFixed(2)
-    const hotel = hotels.find(h => h.id === booking.hotel_id)
-    const total = parseFloat(booking.total_amount || 0)
-    const paid  = payments.reduce((s, p) => s + parseFloat(p.amount || 0), 0)
 
     // Llamar WF-RECIBO-ABONO-v1 con Gotenberg + Telegram
     try {
@@ -812,27 +863,42 @@ function TabRecibo({ bookings, hotels, initialBookingId = '' }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          booking_reference:     booking.booking_reference,
+          booking_reference:     isGroupReceipt
+                                    ? groupRows.map(b => b.booking_reference).join(' / ')
+                                    : booking.booking_reference,
+          is_group:               isGroupReceipt,
+          group_id:               booking.group_id || null,
+          rooms:                  groupRows.map(b => ({
+            booking_reference: b.booking_reference,
+            room_name:         b.room_name || 'Estandar',
+            guest_name:        b.lead_guest_name,
+            adults:            b.adults || 2,
+            children:          b.children || 0,
+            total_amount:      parseFloat(b.total_amount || 0),
+            total_amount_dop:  parseFloat(b.total_amount_dop || 0),
+          })),
           lead_guest_name:       booking.lead_guest_name,
           lead_phone:            booking.lead_phone || '',
           hotel_name:            hotel?.name || booking.hotel_code || '',
           hotel_zone:            hotel?.zone || '',
           check_in:              booking.check_in,
           check_out:             booking.check_out,
-          adults:                booking.adults || 2,
-          children:              booking.children || 0,
-          room_name:             booking.room_name || 'Estándar',
+          adults:                groupRows.reduce((s, b) => s + (b.adults || 0), 0) || booking.adults || 2,
+          children:              groupRows.reduce((s, b) => s + (b.children || 0), 0) || booking.children || 0,
+          room_name:             isGroupReceipt ? `${groupRows.length} habitaciones` : (booking.room_name || 'Estandar'),
           meal_plan:             'Todo Incluido',
           hotel_confirmation_no: booking.hotel_confirmation_no || '',
           status:                booking.status,
-          currency:              booking.currency || 'USD',
+          currency:              currency,
+          exchange_rate:         rate,
           total_amount:          total,
+          total_amount_dop:      totalDop,
           total:                 total,
           paid:                  paid,
           abono:                 paid,
           payments:              payments.map(p => ({
             amount:     p.amount,
-            currency:   p.currency || booking.currency || 'USD',
+            currency:   p.currency || currency,
             method:     p.method || 'Transferencia',
             created_at: p.created_at,
             reference:  p.reference || ''
@@ -840,7 +906,7 @@ function TabRecibo({ bookings, hotels, initialBookingId = '' }) {
         })
       })
       const data = await res.json()
-      alert('✅ Recibo enviado a Telegram. El PDF estará listo en ~15 segundos.')
+      alert('\u2705 Recibo enviado a Telegram. El PDF estara listo en ~15 segundos.')
       if (data.pdf_url) window.open(data.pdf_url, '_blank')
     } catch (err) {
       alert('Error generando recibo: ' + err.message)
@@ -964,10 +1030,18 @@ ${payments.length > 0 ? `<hr><p style="font-weight:700;margin:0 0 6px">Historial
               <p className="text-gray-400 text-xs mt-0.5">Comprobante de reserva</p>
             </div>
             <div className="text-right">
-              <p className="font-bold text-amber-400">{booking.booking_reference}</p>
+              <p className="font-bold text-amber-400">
+                {isGroupReceipt ? `${groupRows.length} habitaciones (grupo)` : booking.booking_reference}
+              </p>
               <p className="text-gray-500 text-xs">{new Date().toLocaleDateString('es-DO')}</p>
             </div>
           </div>
+
+          {isGroupReceipt && (
+            <div className="text-xs text-amber-400 font-bold uppercase tracking-wide bg-amber-900/20 border border-amber-800/40 rounded-lg px-3 py-1.5">
+              Recibo consolidado · {groupRows.map(b => b.booking_reference).join(' / ')}
+            </div>
+          )}
 
           {/* Estado */}
           <div className={`text-center text-xs font-bold py-1.5 rounded-lg ${booking.status === 'confirmed' ? 'bg-emerald-900/40 text-emerald-400' : 'bg-amber-900/40 text-amber-400'}`}>
@@ -1000,7 +1074,7 @@ ${payments.length > 0 ? `<hr><p style="font-weight:700;margin:0 0 6px">Historial
               {payments.map((p, i) => (
                 <div key={i} className="flex justify-between text-xs">
                   <span className="text-gray-400">{new Date(p.created_at).toLocaleDateString('es-DO')} · {p.method || '—'}</span>
-                  <span className="text-emerald-400 font-semibold">+${fmt(p.amount)}</span>
+                  <span className="text-emerald-400 font-semibold">+{money(p.amount)}</span>
                 </div>
               ))}
             </>
@@ -1010,18 +1084,18 @@ ${payments.length > 0 ? `<hr><p style="font-weight:700;margin:0 0 6px">Historial
           <hr className="border-gray-700" />
           <div className="space-y-1.5">
             <div className="flex justify-between text-xs">
-              <span className="text-gray-400">Total acordado</span>
-              <span className="text-white">${fmt(total)} USD</span>
+              <span className="text-gray-400">Total acordado{isGroupReceipt ? ' (grupo)' : ''}</span>
+              <span className="text-white">{money(total)}{currency === 'USD' && <span className="text-gray-500"> (RD$ {fmtDOP(total)})</span>}</span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-gray-400">Abonado</span>
-              <span className="text-emerald-400 font-semibold">${fmt(paid)} USD</span>
+              <span className="text-emerald-400 font-semibold">{money(paid)}</span>
             </div>
           </div>
           <div className={`flex justify-between items-center p-3 rounded-lg font-bold ${balance <= 0 ? 'bg-emerald-900/30 border border-emerald-800' : 'bg-amber-900/30 border border-amber-800'}`}>
             <span className="text-sm">Saldo pendiente</span>
             <span className={`text-base ${balance <= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
-              {balance <= 0 ? '✓ Saldado' : `$${fmt(balance)} USD`}
+              {balance <= 0 ? '✓ Saldado' : money(balance)}
             </span>
           </div>
 
