@@ -21,6 +21,8 @@ import ApiToolbox from '../features/api-toolbox/pages/ApiToolbox'
 
 // Admin Core 2 Components & Pages
 import AdminDashboardPage from '../pages/admin/AdminDashboardPage'
+import MarketingMissionControl from '../pages/admin/MarketingMissionControl'
+import AriadnePanel           from '../pages/admin/AriadnePanel'
 import BookingOpsPanel from '../pages/admin/BookingOpsPanel'
 import AdminHotelsPage from '../pages/admin/AdminHotelsPage'
 import PaymentGatewayPage from '@/components/admin/PaymentGatewayPage';
@@ -107,7 +109,9 @@ export function AppShell() {
               
               {/* Phase 2 Modules */}
               <Route path="dashboard26" element={<BookingOpsPanel />} />
-              <Route path="warroom" element={<WarRoomV41 />} />
+              <Route path="marketing" element={<MarketingMissionControl />} />
+          <Route path="ariadne"   element={<AriadnePanel />} />
+          <Route path="warroom" element={<WarRoomV41 />} />
               <Route path="integrity" element={<IntegrityMonitor />} />
               <Route path="mission" element={
                 <MissionErrorBoundary>
