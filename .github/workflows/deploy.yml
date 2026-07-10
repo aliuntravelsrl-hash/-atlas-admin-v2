@@ -55,6 +55,10 @@ jobs:
           # Extraer nuevo build
           tar xzf /tmp/admin-dist.tar.gz -C "$TARGET"
           
+          # Garantizar permisos correctos para Apache
+          find "$TARGET" -type d -exec chmod 755 {} \;
+          find "$TARGET" -type f -exec chmod 644 {} \;
+          
           # Limpiar archivo temporal
           rm -f /tmp/admin-dist.tar.gz
           
