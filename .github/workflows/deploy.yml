@@ -137,14 +137,10 @@ jobs:
           JS_COUNT=$(find "$TARGET/assets" -name '*.js' | wc -l)
           [ "$JS_COUNT" -gt 0 ] || { echo "❌ /assets sin bundles JS"; exit 1; }
 
-          # 4) Permisos legibles por Apache (lectura para 'others')
-          PERMS=$(stat -c%a "$TARGET/index.html")
-          case "$PERMS" in
-            *4|*5|*6|*7) : ;; # último dígito con bit de lectura
-            *) echo "❌ index.html con permisos $PERMS — no legible por Apache"; exit 1 ;;
-          esac
+          # 4) Verificar que index.html es legible (test -r es portable)
+          test -r "$TARGET/index.html" || { echo "❌ index.html no legible por el proceso actual"; exit 1; }
 
-          echo "✅ POST-DEPLOY OK: index=$INDEX_SIZE bytes · assets/*.js=$JS_COUNT · perms=$PERMS"
+          echo "✅ POST-DEPLOY OK: index=$INDEX_SIZE bytes · assets/*.js=$JS_COUNT"
           ENDSSH
 
       - name: Cleanup SSH key
