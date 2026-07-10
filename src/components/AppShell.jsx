@@ -110,8 +110,8 @@ export function AppShell() {
               {/* Phase 2 Modules */}
               <Route path="dashboard26" element={<BookingOpsPanel />} />
               <Route path="marketing" element={<MarketingMissionControl />} />
-          <Route path="ariadne"   element={<AriadnePanel />} />
-          <Route path="warroom" element={<WarRoomV41 />} />
+              <Route path="ariadne"   element={<AriadnePanel />} />
+              <Route path="warroom" element={<WarRoomV41 />} />
               <Route path="integrity" element={<IntegrityMonitor />} />
               <Route path="mission" element={
                 <MissionErrorBoundary>
