@@ -91,11 +91,9 @@ jobs:
           rm -f "$TARGET/index.html" "$TARGET/.htaccess"
           rm -rf "$TARGET/assets"
 
-          # Mover todo lo del staging al target (incluye dotfiles como .htaccess)
-          shopt -s dotglob
-          mv "$STAGING"/* "$TARGET/"
-          shopt -u dotglob
-          rmdir "$STAGING"
+          # Copiar todo del staging al target (incluye dotfiles como .htaccess)
+          cp -a "$STAGING/." "$TARGET/"
+          rm -rf "$STAGING"
 
           # 6) Re-aplicar permisos por si algo se movió con permisos raros
           find "$TARGET" -type d -exec chmod 755 {} \;
