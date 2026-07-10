@@ -108,6 +108,18 @@ export const HorizonsLayout = () => {
       current: location.pathname === '/admin/excursion-bookings'
     },
     {
+      name: '📢 Marketing Mission Control',
+      icon: '📢',
+      href: '/marketing',
+      current: location.pathname === '/marketing'
+    },
+    {
+      name: '🧠 Ariadne Data',
+      icon: '🧠',
+      href: '/ariadne',
+      current: location.pathname === '/ariadne'
+    },
+    {
       name: 'Galería (Ofertas) 🖼️',
       icon: '🖼️',
       href: '/marketing/offers',
