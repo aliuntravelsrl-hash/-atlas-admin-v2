@@ -8,19 +8,3 @@
 
 AddType text/javascript .js
 AddType application/javascript .mjs
-
-<IfModule mod_headers.c>
-  Header set X-Powered-By "Hostinger Horizons"
-  
-  # Por defecto desactivar cache para asegurar actualización instantánea del HTML y rutas del router
-  Header set Cache-Control "max-age=0, no-cache, no-store, must-revalidate"
-  Header set Pragma "no-cache"
-  Header set Expires "Wed, 11 Jan 1984 05:00:00 GMT"
-  
-  # Si es un asset estático (CSS/JS) con hash único de Vite, cachear fuertemente (1 semana)
-  <If "%{REQUEST_URI} =~ m#^/assets/.*$#">
-    Header set Cache-Control "public, max-age=604800, immutable"
-    Header unset Pragma
-    Header unset Expires
-  </If>
-</IfModule>
