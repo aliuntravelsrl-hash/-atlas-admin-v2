@@ -8,17 +8,18 @@ export const paymentService = {
         console.log("💳 Recording Payment:", paymentData);
         
         const { data, error } = await supabase
-            .from('payments')
+            .from('atlas_payments')
             .insert([{
                 booking_id: paymentData.booking_id,
-                hotel_id: paymentData.hotel_id,
                 amount: paymentData.amount,
                 currency: paymentData.currency || 'USD',
-                payment_method: paymentData.payment_method,
-                payment_type: 'online', // 'deposit' or 'full' could be passed here if schema allows
-                transaction_id: paymentData.transaction_id,
-                status: paymentData.status || 'completed',
-                payer_email: paymentData.payer_email,
+                method: paymentData.payment_method, // 'transferencia', 'azul', etc.
+                payment_type: paymentData.payment_type || 'deposito', // 'deposito' o 'total' según constraint
+                reference: paymentData.transaction_id, // Código de transacción/referencia
+                status: paymentData.status || 'approved', // 'approved', 'pending', etc.
+                payer_name: paymentData.payer_name || null,
+                payer_email: paymentData.payer_email || null,
+                evidence: paymentData.evidence || {},
                 created_at: new Date().toISOString()
             }])
             .select()
@@ -34,7 +35,7 @@ export const paymentService = {
 
     async getPaymentsByBooking(bookingId) {
         const { data, error } = await supabase
-            .from('payments')
+            .from('atlas_payments')
             .select('*')
             .eq('booking_id', bookingId);
             
