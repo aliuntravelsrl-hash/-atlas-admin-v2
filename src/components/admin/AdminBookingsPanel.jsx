@@ -239,6 +239,14 @@ const AdminBookingsPanel = () => {
         if (existingLead) {
           finalLeadId = existingLead.id;
         } else {
+          // Clasificación dinámica del origen del lead según la reserva (manual vs web motores)
+          let leadSource = 'manual';
+          if (selectedBooking.source === 'web_booking' || selectedBooking.source === 'web') {
+            leadSource = 'web_booking';
+          } else if (selectedBooking.offer_id || selectedBooking.room_id) {
+            leadSource = 'web_booking';
+          }
+
           // Crear nuevo lead en crm_leads
           const { data: newLead, error: createLeadErr } = await supabaseAdmin
             .from('crm_leads')
@@ -247,7 +255,7 @@ const AdminBookingsPanel = () => {
               phone: editClientPhone ? editClientPhone.trim() : null,
               email: editClientEmail ? editClientEmail.trim() : null,
               stage: 'pendiente',
-              source: 'manual',
+              source: leadSource,
               created_at: new Date().toISOString()
             }])
             .select('id')
