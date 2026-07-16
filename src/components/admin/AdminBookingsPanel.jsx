@@ -222,17 +222,69 @@ const AdminBookingsPanel = () => {
     if (!selectedBooking) return;
     setSavingClient(true);
     try {
-      const auditLog = `\n[${new Date().toLocaleString('es-DO')}] Cliente editado por director: Nombre=${editClientName}, Email=${editClientEmail || 'N/A'}, Tel=${editClientPhone || 'N/A'}, CRM Lead ID=${editLeadId || 'Desasociado'}.`;
+      let finalLeadId = editLeadId || null;
+
+      // 1. Si no hay lead seleccionado pero es un cliente nuevo, crearlo o buscarlo en crm_leads automáticamente
+      if (!finalLeadId && editClientName.trim()) {
+        let existingLead = null;
+        if (editClientPhone && editClientPhone.trim() !== '') {
+          const { data } = await supabaseAdmin
+            .from('crm_leads')
+            .select('id')
+            .eq('phone', editClientPhone.trim())
+            .maybeSingle();
+          existingLead = data;
+        }
+        
+        if (existingLead) {
+          finalLeadId = existingLead.id;
+        } else {
+          // Crear nuevo lead en crm_leads
+          const { data: newLead, error: createLeadErr } = await supabaseAdmin
+            .from('crm_leads')
+            .insert([{
+              full_name: editClientName.trim(),
+              phone: editClientPhone ? editClientPhone.trim() : null,
+              email: editClientEmail ? editClientEmail.trim() : null,
+              stage: 'pendiente',
+              source: 'manual',
+              created_at: new Date().toISOString()
+            }])
+            .select('id')
+            .single();
+
+          if (createLeadErr) {
+            console.warn("No se pudo crear el lead automáticamente en crm_leads:", createLeadErr.message);
+          } else if (newLead) {
+            finalLeadId = newLead.id;
+          }
+        }
+      } else if (finalLeadId) {
+        // 2. Si ya hay un lead seleccionado, actualizar sus datos de contacto en crm_leads
+        await supabaseAdmin
+          .from('crm_leads')
+          .update({
+            full_name: editClientName.trim(),
+            phone: editClientPhone ? editClientPhone.trim() : null,
+            email: editClientEmail ? editClientEmail.trim() : null,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', finalLeadId);
+      }
+
+      // 3. Escribir bitácora híbrida local
+      const auditLog = `\n[${new Date().toLocaleString('es-DO')}] Cliente editado por director: Nombre=${editClientName}, Email=${editClientEmail || 'N/A'}, Tel=${editClientPhone || 'N/A'}, CRM Lead ID=${finalLeadId || 'Desasociado'}.`;
       const updatedNotes = (selectedBooking.internal_notes || '') + auditLog;
 
+      // 4. Actualizar la reserva en bookings
       const { error } = await supabaseAdmin
         .from('bookings')
         .update({
-          lead_guest_name: editClientName,
-          lead_email: editClientEmail || null,
-          lead_phone: editClientPhone || null,
-          nationality: editClientNat || null,
-          lead_id: editLeadId || null,
+          lead_guest_name: editClientName.trim(),
+          lead_email: editClientEmail ? editClientEmail.trim() : null,
+          lead_phone: editClientPhone ? editClientPhone.trim() : null,
+          nationality: editClientNat ? editClientNat.trim() : null,
+          lead_id: finalLeadId,
           internal_notes: updatedNotes,
           updated_at: new Date().toISOString()
         })
@@ -240,12 +292,12 @@ const AdminBookingsPanel = () => {
 
       if (error) throw error;
 
-      // Log persistente en Mission Control
+      // 5. Log de Mission Control
       try {
         await supabaseAdmin.from('logs_operativos').insert({
           nivel: 'INFO',
           evento: 'RESERVA_CLIENTE_MODIFICADA',
-          mensaje: `El administrador modificó los datos de cliente de la reserva ${selectedBooking.booking_reference}: Nombre=${editClientName}, CRM Lead ID=${editLeadId || 'Desasociado'}`,
+          mensaje: `El administrador modificó los datos de cliente de la reserva ${selectedBooking.booking_reference}: Nombre=${editClientName}, CRM Lead ID=${finalLeadId || 'Desasociado'}`,
           origen: 'admin_bookings_panel'
         });
       } catch (err) {
@@ -253,12 +305,13 @@ const AdminBookingsPanel = () => {
       }
 
       toast({
-        title: "Cliente Actualizado",
-        description: "Los datos del cliente y el historial de auditoría han sido guardados.",
+        title: "Cliente Guardado",
+        description: "Los datos de contacto y la vinculación al CRM han sido guardados.",
         className: "bg-green-50 text-green-800 border-green-200"
       });
 
-      loadBookings();
+      // 6. Refrescar reservas secuencialmente y actualizar estados locales
+      await loadBookings();
       
       setSelectedBooking(prev => prev ? {
         ...prev,
@@ -266,12 +319,12 @@ const AdminBookingsPanel = () => {
         lead_email: editClientEmail,
         lead_phone: editClientPhone,
         nationality: editClientNat,
-        lead_id: editLeadId,
+        lead_id: finalLeadId,
         internal_notes: updatedNotes
       } : null);
 
-      if (editLeadId) {
-        const { data } = await supabase.from('crm_leads').select('*').eq('id', editLeadId).maybeSingle();
+      if (finalLeadId) {
+        const { data } = await supabaseAdmin.from('crm_leads').select('*').eq('id', finalLeadId).maybeSingle();
         setCrmLead(data || null);
       } else {
         setCrmLead(null);
