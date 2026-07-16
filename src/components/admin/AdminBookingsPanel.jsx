@@ -196,6 +196,81 @@ const AdminBookingsPanel = () => {
   const [abonoPayments, setAbonoPayments] = useState([]);
   const [abonoError, setAbonoError] = useState(null);
   const [abonoOk, setAbonoOk]     = useState(false);
+
+  // ── Estados de edición del cliente y vinculación al CRM ──────────
+  const [editClientName, setEditClientName] = useState('');
+  const [editClientEmail, setEditClientEmail] = useState('');
+  const [editClientPhone, setEditClientPhone] = useState('');
+  const [editClientNat, setEditClientNat] = useState('');
+  const [editLeadId, setEditLeadId] = useState('');
+  const [allCrmLeads, setAllCrmLeads] = useState([]);
+  const [savingClient, setSavingClient] = useState(false);
+
+  const loadAllCrmLeads = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('crm_leads')
+        .select('id, full_name, phone, stage')
+        .order('full_name', { ascending: true });
+      if (!error) setAllCrmLeads(data || []);
+    } catch (e) {
+      console.error("Error loading all crm leads:", e);
+    }
+  };
+
+  const handleSaveClientData = async () => {
+    if (!selectedBooking) return;
+    setSavingClient(true);
+    try {
+      const { error } = await supabase
+        .from('bookings')
+        .update({
+          lead_guest_name: editClientName,
+          lead_email: editClientEmail || null,
+          lead_phone: editClientPhone || null,
+          nationality: editClientNat || null,
+          lead_id: editLeadId || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedBooking.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Cliente Actualizado",
+        description: "Los datos del cliente y vinculación al CRM han sido guardados.",
+        className: "bg-green-50 text-green-800 border-green-200"
+      });
+
+      loadBookings();
+      
+      setSelectedBooking(prev => prev ? {
+        ...prev,
+        lead_guest_name: editClientName,
+        lead_email: editClientEmail,
+        lead_phone: editClientPhone,
+        nationality: editClientNat,
+        lead_id: editLeadId
+      } : null);
+
+      if (editLeadId) {
+        const { data } = await supabase.from('crm_leads').select('*').eq('id', editLeadId).maybeSingle();
+        setCrmLead(data || null);
+      } else {
+        setCrmLead(null);
+      }
+    } catch (e) {
+      console.error("Error saving client data:", e);
+      toast({
+        title: "Error al Guardar",
+        description: e.message,
+        variant: "destructive"
+      });
+    } finally {
+      setSavingClient(false);
+    }
+  };
+
   const emitirVoucher = async (booking) => {
     if (emitiendo) return;
     setEmitiendo(booking.id);
@@ -342,22 +417,35 @@ const AdminBookingsPanel = () => {
   };
 
   // --- CRM Lead Link Lookup ---
-  const fetchCrmLead = async (guestName) => {
-    if (!guestName) return;
+  const fetchCrmLead = async (booking) => {
+    if (!booking) return;
     setCrmLoading(true);
     setCrmLead(null);
     try {
-      const { data, error } = await supabase
-        .from('crm_leads')
-        .select('*')
-        .ilike('full_name', `%${guestName}%`)
-        .eq('source', 'web_booking')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (error) throw error;
-      setCrmLead(data);
+      if (booking.lead_id) {
+        const { data, error } = await supabase
+          .from('crm_leads')
+          .select('*')
+          .eq('id', booking.lead_id)
+          .maybeSingle();
+        if (!error && data) {
+          setCrmLead(data);
+          return;
+        }
+      }
+      
+      if (booking.lead_guest_name) {
+        const { data, error } = await supabase
+          .from('crm_leads')
+          .select('*')
+          .ilike('full_name', `%${booking.lead_guest_name}%`)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (!error && data) {
+          setCrmLead(data);
+        }
+      }
     } catch (error) {
       console.error("Error fetching CRM Lead:", error);
     } finally {
@@ -370,9 +458,18 @@ const AdminBookingsPanel = () => {
     setHotelConfirmationNo(booking.hotel_confirmation_no || '');
     setStatusVal(booking.status || '');
     setPaymentStatusVal(booking.payment_status || '');
+    
+    // Inicializar campos de edición de cliente
+    setEditClientName(booking.lead_guest_name || '');
+    setEditClientEmail(booking.lead_email || '');
+    setEditClientPhone(booking.lead_phone || '');
+    setEditClientNat(booking.nationality || '');
+    setEditLeadId(booking.lead_id || '');
+    loadAllCrmLeads();
+
     setDetailTab(defaultTab);
     setIsDetailOpen(true);
-    fetchCrmLead(booking.lead_guest_name);
+    fetchCrmLead(booking);
 
     // Cargar pagos existentes para el formulario inline de abono
     setAbonoOk(false);
@@ -1326,54 +1423,106 @@ const AdminBookingsPanel = () => {
 
               {/* TAB: CUSTOMER */}
               <TabsContent value="customer" className="space-y-4 pt-4">
-                <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border text-sm text-slate-700">
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4 text-slate-400" />
-                    <strong>Titular:</strong> {selectedBooking.lead_guest_name}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-slate-400" />
-                    <strong>Email:</strong> {selectedBooking.lead_email || 'N/A'}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Phone className="w-4 h-4 text-slate-400" />
-                    <strong>Teléfono:</strong> {selectedBooking.lead_phone || 'N/A'}
-                  </div>
-                  {selectedBooking.nationality && (
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-slate-400" />
-                      <strong>Nacionalidad:</strong> {selectedBooking.nationality}
+                <div className="space-y-4 bg-slate-50 p-5 rounded-2xl border text-sm">
+                  <h4 className="font-black text-slate-800 text-xs uppercase tracking-wider mb-2">Editar Datos del Cliente</h4>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-500">Nombre Titular *</label>
+                      <Input 
+                        value={editClientName} 
+                        onChange={e => setEditClientName(e.target.value)} 
+                        className="bg-white border-slate-200 h-10"
+                        placeholder="Nombre completo"
+                      />
                     </div>
-                  )}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-500">Nacionalidad (DO / US / etc.)</label>
+                      <Input 
+                        value={editClientNat} 
+                        onChange={e => setEditClientNat(e.target.value.toUpperCase())} 
+                        className="bg-white border-slate-200 h-10 font-mono"
+                        placeholder="Ej. DO"
+                        maxLength={3}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-500">Correo Electrónico</label>
+                      <Input 
+                        value={editClientEmail} 
+                        onChange={e => setEditClientEmail(e.target.value)} 
+                        className="bg-white border-slate-200 h-10"
+                        placeholder="ejemplo@correo.com"
+                        type="email"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-500">Teléfono (WhatsApp)</label>
+                      <Input 
+                        value={editClientPhone} 
+                        onChange={e => setEditClientPhone(e.target.value)} 
+                        className="bg-white border-slate-200 h-10 font-mono"
+                        placeholder="Ej. +18095551234"
+                      />
+                    </div>
+                  </div>
                 </div>
 
-                <div className="border border-slate-200 p-4 rounded-2xl bg-white space-y-3">
+                <div className="border border-slate-200 p-5 rounded-2xl bg-white space-y-4">
                   <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
                     <Building className="w-4 h-4 text-[#C19A6B]" /> Vinculación al CRM de Supabase
                   </h4>
+                  
+                  <div className="space-y-3">
+                    <label className="text-xs font-bold text-slate-500 block">Asociar Reserva a Prospecto / Lead:</label>
+                    <select
+                      value={editLeadId}
+                      onChange={e => setEditLeadId(e.target.value)}
+                      className="w-full bg-white border border-slate-200 px-3 py-2 rounded-xl text-xs font-semibold focus:outline-none focus:border-blue-500/50 h-10"
+                    >
+                      <option value="">-- No vinculado / Buscar Lead --</option>
+                      {allCrmLeads.map(l => (
+                        <option key={l.id} value={l.id}>
+                          {l.full_name} ({l.phone || 'Sin tel'} · Etapa: {l.stage})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   {crmLoading ? (
-                    <p className="text-xs text-slate-400 animate-pulse">Buscando lead en crm_leads...</p>
+                    <p className="text-xs text-slate-400 animate-pulse">Buscando estado del lead...</p>
                   ) : crmLead ? (
-                    <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center justify-between text-xs bg-blue-50/50 border border-blue-100 p-3 rounded-xl">
                       <div>
-                        <p className="font-semibold text-slate-700">Lead encontrado: {crmLead.full_name}</p>
-                        <p className="text-slate-500">Etapa actual: <span className="font-bold uppercase text-[#C19A6B]">{crmLead.stage}</span></p>
+                        <p className="font-semibold text-slate-700">Vínculo Activo: {crmLead.full_name}</p>
+                        <p className="text-slate-500">Etapa actual en el Funnel: <span className="font-bold uppercase text-[#C19A6B]">{crmLead.stage}</span></p>
                       </div>
                       <Button 
                         variant="outline" 
                         size="sm" 
-                        className="text-xs gap-1"
-                        onClick={() => window.open(`/crm/pipeline?search=${encodeURIComponent(selectedBooking.lead_guest_name)}`, '_blank')}
+                        className="text-xs gap-1 bg-white hover:bg-slate-50 border-slate-200"
+                        onClick={() => window.open(`/crm/pipeline?search=${encodeURIComponent(crmLead.full_name)}`, '_blank')}
                       >
-                        Ver en CRM <ExternalLink className="w-3 h-3" />
+                        Ver en Pipeline <ExternalLink className="w-3 h-3" />
                       </Button>
                     </div>
                   ) : (
-                    <p className="text-xs text-slate-500">
-                      No se encontró un lead correspondiente en crm_leads para el cliente "{selectedBooking.lead_guest_name}".
+                    <p className="text-xs text-slate-500 italic">
+                      Reserva huérfana de CRM. Asocia un lead arriba para sincronizar el historial de ventas.
                     </p>
                   )}
                 </div>
+
+                <Button 
+                  onClick={handleSaveClientData} 
+                  disabled={savingClient || !editClientName.trim()}
+                  className="w-full bg-[#A88B46] hover:bg-[#967C3E] text-white font-bold h-11 shadow-sm"
+                >
+                  {savingClient ? <><Loader2 className="w-4 h-4 mr-2 animate-spin"/>Guardando Cambios...</> : 'Guardar Cambios del Cliente'}
+                </Button>
               </TabsContent>
 
               {/* TAB: PROVIDER */}
