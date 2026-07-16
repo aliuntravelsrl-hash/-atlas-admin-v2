@@ -222,6 +222,9 @@ const AdminBookingsPanel = () => {
     if (!selectedBooking) return;
     setSavingClient(true);
     try {
+      const auditLog = `\n[${new Date().toLocaleString('es-DO')}] Cliente editado por director: Nombre=${editClientName}, Email=${editClientEmail || 'N/A'}, Tel=${editClientPhone || 'N/A'}, CRM Lead ID=${editLeadId || 'Desasociado'}.`;
+      const updatedNotes = (selectedBooking.internal_notes || '') + auditLog;
+
       const { error } = await supabase
         .from('bookings')
         .update({
@@ -230,15 +233,28 @@ const AdminBookingsPanel = () => {
           lead_phone: editClientPhone || null,
           nationality: editClientNat || null,
           lead_id: editLeadId || null,
+          internal_notes: updatedNotes,
           updated_at: new Date().toISOString()
         })
         .eq('id', selectedBooking.id);
 
       if (error) throw error;
 
+      // Log persistente en Mission Control
+      try {
+        await supabase.from('logs_operativos').insert({
+          nivel: 'INFO',
+          evento: 'RESERVA_CLIENTE_MODIFICADA',
+          mensaje: `El administrador modificó los datos de cliente de la reserva ${selectedBooking.booking_reference}: Nombre=${editClientName}, CRM Lead ID=${editLeadId || 'Desasociado'}`,
+          origen: 'admin_bookings_panel'
+        });
+      } catch (err) {
+        console.warn("Error al registrar en logs_operativos:", err);
+      }
+
       toast({
         title: "Cliente Actualizado",
-        description: "Los datos del cliente y vinculación al CRM han sido guardados.",
+        description: "Los datos del cliente y el historial de auditoría han sido guardados.",
         className: "bg-green-50 text-green-800 border-green-200"
       });
 
@@ -250,7 +266,8 @@ const AdminBookingsPanel = () => {
         lead_email: editClientEmail,
         lead_phone: editClientPhone,
         nationality: editClientNat,
-        lead_id: editLeadId
+        lead_id: editLeadId,
+        internal_notes: updatedNotes
       } : null);
 
       if (editLeadId) {
@@ -273,6 +290,39 @@ const AdminBookingsPanel = () => {
 
   const emitirVoucher = async (booking) => {
     if (emitiendo) return;
+
+    // ── VALIDACIÓN DEL SCHEMA DE EMISIÓN ────────────────────────────
+    const errors = [];
+    if (!booking.hotel_confirmation_no || booking.hotel_confirmation_no.trim() === '' || booking.hotel_confirmation_no.trim().toUpperCase() === 'PENDIENTE') {
+      errors.push("Falta el Localizador de Confirmación de Hotel del Proveedor.");
+    }
+    if (!booking.lead_guest_name || booking.lead_guest_name.trim().length < 3) {
+      errors.push("Falta el nombre completo del Titular de la reserva.");
+    }
+    if (booking.status !== 'confirmed') {
+      errors.push("La reserva debe estar en estado 'Confirmada' para poder emitir el voucher.");
+    }
+    if (booking.payment_status === 'pending') {
+      errors.push("No se puede emitir un voucher para una reserva con pago pendiente.");
+    }
+
+    if (errors.length > 0) {
+      toast({
+        title: "Emisión de Voucher Bloqueada",
+        description: (
+          <div className="space-y-1 mt-1 text-xs">
+            <p className="font-semibold text-slate-700">La reserva no cumple con el esquema mínimo de datos:</p>
+            <ul className="list-disc pl-4 space-y-0.5 text-rose-600 font-medium">
+              {errors.map((err, i) => <li key={i}>{err}</li>)}
+            </ul>
+            <p className="mt-1.5 text-[10px] text-amber-600 font-bold">Por favor, edita los datos del Cliente/Proveedor en el modal antes de emitir.</p>
+          </div>
+        ),
+        variant: "destructive"
+      });
+      return;
+    }
+
     setEmitiendo(booking.id);
     try {
       // WF-VOUCHER-GOTENBERG-v1 — webhook: aliun-voucher
@@ -534,22 +584,41 @@ const AdminBookingsPanel = () => {
     if (!selectedBooking) return;
     setSavingSettings(true);
     try {
+      const auditLog = `\n[${new Date().toLocaleString('es-DO')}] Cambios proveedor/estado por director: Localizador=${hotelConfirmationNo || 'N/A'}, Estado=${statusVal}, Pago=${paymentStatusVal}.`;
+      const updatedNotes = (selectedBooking.internal_notes || '') + auditLog;
+
       const { error } = await supabase
         .from('bookings')
         .update({
           hotel_confirmation_no: hotelConfirmationNo || null,
           status: statusVal,
           payment_status: paymentStatusVal,
+          internal_notes: updatedNotes,
           updated_at: new Date().toISOString()
         })
         .eq('id', selectedBooking.id);
 
       if (error) throw error;
 
+      // Log persistente en Mission Control
+      try {
+        await supabase.from('logs_operativos').insert({
+          nivel: 'INFO',
+          evento: 'RESERVA_MODIFICADA',
+          mensaje: `El administrador modificó los datos de la reserva ${selectedBooking.booking_reference}: Localizador=${hotelConfirmationNo || 'N/A'}, Estado=${statusVal}, Pago=${paymentStatusVal}`,
+          origen: 'admin_bookings_panel'
+        });
+      } catch (err) {
+        console.warn("Error al registrar en logs_operativos:", err);
+      }
+
       toast({
         title: "Reserva Actualizada",
-        description: "Los cambios fueron guardados exitosamente en la base de datos.",
+        description: "Los cambios y el historial de auditoría fueron guardados exitosamente.",
+        className: "bg-green-50 text-green-800 border-green-200"
       });
+      
+      setSelectedBooking(prev => prev ? { ...prev, internal_notes: updatedNotes } : null);
       loadBookings();
     } catch (error) {
       console.error("Error saving booking details:", error);
