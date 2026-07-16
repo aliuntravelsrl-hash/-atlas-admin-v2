@@ -323,7 +323,7 @@ const AdminBookingsPanel = () => {
         .from('bookings')
         .select(`
           *,
-          hotels_master (name, zone, about_image)
+          hotels_master (name, zone, about_image, slug)
         `)
         .order('created_at', { ascending: false });
         

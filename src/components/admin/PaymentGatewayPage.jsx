@@ -91,7 +91,7 @@ export default function PaymentGatewayPage() {
           deposit_amount, deposit_amount_dop, payment_status,
           status, fulfillment_status, check_in, check_out, nights,
           room_name, adults, children, hotel_confirmation_no, hotel_code,
-          hotels_master ( name, zone, stars )
+          hotels_master ( name, zone, stars, slug )
         `)
         .eq('booking_reference', bookingRef)
         .single();
