@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -46,6 +47,7 @@ const getDocType = (booking, payments) => {
 }
 
 const AdminBookingsPanel = () => {
+  const navigate = useNavigate();
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -1064,7 +1066,7 @@ const AdminBookingsPanel = () => {
                               className="bg-[#0A3A6B] hover:bg-[#082D54] text-white font-bold text-xs"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                window.location.href = `/admin/payments/${booking.booking_reference}`;
+                                navigate(`/admin/payments/${booking.booking_reference}`);
                               }}
                             >
                               💳 Gestionar Pago
@@ -1076,7 +1078,7 @@ const AdminBookingsPanel = () => {
                               className="border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                window.open(`/admin/crm/leads?name=${encodeURIComponent(booking.lead_guest_name)}`, '_blank');
+                                window.open(`/crm/pipeline?search=${encodeURIComponent(booking.lead_guest_name)}`, '_blank');
                               }}
                             >
                               Ver CRM
@@ -1361,7 +1363,7 @@ const AdminBookingsPanel = () => {
                         variant="outline" 
                         size="sm" 
                         className="text-xs gap-1"
-                        onClick={() => window.open(`/admin/crm/leads?name=${encodeURIComponent(selectedBooking.lead_guest_name)}`, '_blank')}
+                        onClick={() => window.open(`/crm/pipeline?search=${encodeURIComponent(selectedBooking.lead_guest_name)}`, '_blank')}
                       >
                         Ver en CRM <ExternalLink className="w-3 h-3" />
                       </Button>

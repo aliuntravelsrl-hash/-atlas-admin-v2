@@ -44,6 +44,12 @@ export const PipelineKanban = () => {
   const [hotels, setHotels] = useState([]);
 
   useEffect(() => {
+    // Capturar parámetro search de la URL para filtro directo de CRM
+    const params = new URLSearchParams(window.location.search);
+    const searchVal = params.get('search');
+    if (searchVal) {
+      setSearchTerm(searchVal);
+    }
     fetchLeads();
     fetchHotels();
   }, []);
