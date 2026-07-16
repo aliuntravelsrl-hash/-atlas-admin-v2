@@ -225,7 +225,7 @@ const AdminBookingsPanel = () => {
       const auditLog = `\n[${new Date().toLocaleString('es-DO')}] Cliente editado por director: Nombre=${editClientName}, Email=${editClientEmail || 'N/A'}, Tel=${editClientPhone || 'N/A'}, CRM Lead ID=${editLeadId || 'Desasociado'}.`;
       const updatedNotes = (selectedBooking.internal_notes || '') + auditLog;
 
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from('bookings')
         .update({
           lead_guest_name: editClientName,
@@ -242,7 +242,7 @@ const AdminBookingsPanel = () => {
 
       // Log persistente en Mission Control
       try {
-        await supabase.from('logs_operativos').insert({
+        await supabaseAdmin.from('logs_operativos').insert({
           nivel: 'INFO',
           evento: 'RESERVA_CLIENTE_MODIFICADA',
           mensaje: `El administrador modificó los datos de cliente de la reserva ${selectedBooking.booking_reference}: Nombre=${editClientName}, CRM Lead ID=${editLeadId || 'Desasociado'}`,
@@ -583,7 +583,7 @@ const AdminBookingsPanel = () => {
       const auditLog = `\n[${new Date().toLocaleString('es-DO')}] Cambios proveedor/estado por director: Localizador=${hotelConfirmationNo || 'N/A'}, Estado=${statusVal}, Pago=${paymentStatusVal}.`;
       const updatedNotes = (selectedBooking.internal_notes || '') + auditLog;
 
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from('bookings')
         .update({
           hotel_confirmation_no: hotelConfirmationNo || null,
@@ -598,7 +598,7 @@ const AdminBookingsPanel = () => {
 
       // Log persistente en Mission Control
       try {
-        await supabase.from('logs_operativos').insert({
+        await supabaseAdmin.from('logs_operativos').insert({
           nivel: 'INFO',
           evento: 'RESERVA_MODIFICADA',
           mensaje: `El administrador modificó los datos de la reserva ${selectedBooking.booking_reference}: Localizador=${hotelConfirmationNo || 'N/A'}, Estado=${statusVal}, Pago=${paymentStatusVal}`,
