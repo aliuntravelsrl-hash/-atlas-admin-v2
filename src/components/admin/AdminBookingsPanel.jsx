@@ -416,7 +416,7 @@ const AdminBookingsPanel = () => {
     loadBookings(); // refrescar tarjetas
   };
 
-  const notificarHermesQA = async (booking) => {
+  const notificarHermesQA = async (booking, auditLog = '') => {
     try {
       await fetch('https://n8n-n8n.xaruuo.easypanel.host/webhook/hermes-qa-seguimiento', {
         method: 'POST',
@@ -434,6 +434,7 @@ const AdminBookingsPanel = () => {
           currency:          booking.currency || 'USD',
           tipo:              'seguimiento_cobro_72h',
           fuente:            'admin_bookings_panel',
+          audit_log:         auditLog.trim(),
         })
       });
     } catch (e) {
@@ -531,12 +532,7 @@ const AdminBookingsPanel = () => {
       .in('status', ['approved', 'confirmed'])
       .then(({ data }) => setAbonoPayments(data || []));
 
-    const esPendienteCobro = booking.hotel_confirmation_no &&
-      booking.hotel_confirmation_no.trim() !== '' &&
-      booking.status !== 'cancelled' &&
-      booking.fulfillment_status !== 'voucher_issued' &&
-      booking.payment_status !== 'paid';
-    if (esPendienteCobro) notificarHermesQA(booking);
+
 
     if (booking.room_id && !booking.room_name) {
       try {
@@ -617,6 +613,21 @@ const AdminBookingsPanel = () => {
         description: "Los cambios y el historial de auditoría fueron guardados exitosamente.",
         className: "bg-green-50 text-green-800 border-green-200"
       });
+
+      // Detonar Hermes QA únicamente si cumple las condiciones operativas de cobro pendiente
+      const esPendienteCobro = (hotelConfirmationNo && hotelConfirmationNo.trim() !== '') &&
+        statusVal !== 'cancelled' &&
+        selectedBooking.fulfillment_status !== 'voucher_issued' &&
+        paymentStatusVal !== 'paid';
+
+      if (esPendienteCobro) {
+        notificarHermesQA({
+          ...selectedBooking,
+          hotel_confirmation_no: hotelConfirmationNo,
+          status: statusVal,
+          payment_status: paymentStatusVal
+        }, auditLog);
+      }
       
       setSelectedBooking(prev => prev ? { ...prev, internal_notes: updatedNotes } : null);
       loadBookings();
