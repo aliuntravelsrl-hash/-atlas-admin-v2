@@ -124,6 +124,12 @@ export const HorizonsLayout = () => {
       icon: '🖼️',
       href: '/marketing/offers',
       current: location.pathname.startsWith('/marketing/offers')
+    },
+    {
+      name: 'Acciones Rápidas ⚡',
+      icon: '⚡',
+      href: '/',
+      current: location.pathname === '/'
     }
   ];
 
