@@ -1,1 +1,1 @@
-redeploy 2026-07-11T16:57:05
+redeploy forzado 2026-07-17T14:23:26Z — fix MIME mismatch assets Hostinger
