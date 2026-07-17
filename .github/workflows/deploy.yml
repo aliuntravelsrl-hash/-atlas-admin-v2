@@ -25,6 +25,7 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_SERVICE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_KEY }}
 
       - name: Verify build output
         run: |
@@ -80,22 +81,19 @@ jobs:
           find "$STAGING" -type d -exec chmod 755 {} \;
           find "$STAGING" -type f -exec chmod 644 {} \;
 
-          # 4) Backup del TARGET actual (solo index.html + assets + .htaccess) por si acaso
+          # 4) Backup del TARGET actual
           mkdir -p "$BACKUP"
           [ -f "$TARGET/index.html" ] && cp "$TARGET/index.html" "$BACKUP/" || true
           [ -f "$TARGET/.htaccess" ]  && cp "$TARGET/.htaccess"  "$BACKUP/" || true
           [ -d "$TARGET/assets" ]     && cp -r "$TARGET/assets"  "$BACKUP/" || true
 
-          # 5) Swap atómico: mover archivos nuevos al TARGET
-          #    (mantenemos subdirectorios como /api-toolbox, /sounds que ya existen y no vienen en dist)
+          # 5) Swap atómico
           rm -f "$TARGET/index.html" "$TARGET/.htaccess"
           rm -rf "$TARGET/assets"
-
-          # Copiar todo del staging al target (incluye dotfiles como .htaccess)
           cp -a "$STAGING/." "$TARGET/"
           rm -rf "$STAGING"
 
-          # 6) Re-aplicar permisos por si algo se movió con permisos raros
+          # 6) Re-aplicar permisos
           find "$TARGET" -type d -exec chmod 755 {} \;
           find "$TARGET" -type f -exec chmod 644 {} \;
 
@@ -120,7 +118,6 @@ jobs:
           set -euo pipefail
           TARGET="$HOME/domains/atlas.aliuntravelsrl.com/public_html"
 
-          # 1) index.html debe existir y tener contenido real (>100 bytes descarta placeholders vacíos)
           if [ ! -s "$TARGET/index.html" ]; then
             echo "❌ index.html falta o está vacío"
             ls -la "$TARGET/" | head -20
@@ -129,16 +126,13 @@ jobs:
           INDEX_SIZE=$(stat -c%s "$TARGET/index.html")
           [ "$INDEX_SIZE" -gt 100 ] || { echo "❌ index.html demasiado pequeño ($INDEX_SIZE bytes)"; exit 1; }
 
-          # 2) .htaccess debe existir para que el SPA fallback funcione
           [ -s "$TARGET/.htaccess" ] || echo "⚠️  .htaccess falta o vacío — SPA routing puede fallar"
 
-          # 3) /assets debe existir y contener al menos un bundle JS
           test -d "$TARGET/assets" || { echo "❌ /assets falta"; exit 1; }
           JS_COUNT=$(find "$TARGET/assets" -name '*.js' | wc -l)
           [ "$JS_COUNT" -gt 0 ] || { echo "❌ /assets sin bundles JS"; exit 1; }
 
-          # 4) Verificar que index.html es legible (test -r es portable)
-          test -r "$TARGET/index.html" || { echo "❌ index.html no legible por el proceso actual"; exit 1; }
+          test -r "$TARGET/index.html" || { echo "❌ index.html no legible"; exit 1; }
 
           echo "✅ POST-DEPLOY OK: index=$INDEX_SIZE bytes · assets/*.js=$JS_COUNT"
           ENDSSH
