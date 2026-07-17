@@ -1,1 +1,1 @@
-redeploy forzado 2026-07-17T14:23:26Z — fix MIME mismatch assets Hostinger
+redeploy 2026-07-17T15:10:47Z — activar VITE_SUPABASE_SERVICE_KEY en build
