@@ -69,72 +69,42 @@ jobs:
           # 1) Extraer a staging (nunca tocar TARGET todavía)
           tar xzf /tmp/admin-dist.tar.gz -C "$STAGING"
 
-          # 2) Validar que el staging tenga lo mínimo
+          # 2) Validar staging mínimo
           test -f "$STAGING/index.html" || { echo "❌ staging sin index.html — abortando"; rm -rf "$STAGING"; exit 1; }
           test -d "$STAGING/assets"     || { echo "❌ staging sin /assets — abortando"; rm -rf "$STAGING"; exit 1; }
-          test -f "$STAGING/.htaccess"  || { echo "⚠️  staging sin .htaccess (SPA fallback puede fallar)"; }
           INDEX_SIZE=$(stat -c%s "$STAGING/index.html" 2>/dev/null || echo 0)
           [ "$INDEX_SIZE" -gt 100 ] || { echo "❌ index.html vacío ($INDEX_SIZE bytes) — abortando"; rm -rf "$STAGING"; exit 1; }
           echo "✅ staging válido — index.html=$INDEX_SIZE bytes"
 
-          # 3) Permisos correctos en staging
-          find "$STAGING" -type d -exec chmod 755 {} \; 2>/dev/null || true
-          find "$STAGING" -type f -exec chmod 644 {} \; 2>/dev/null || true
+          # 3) Permisos correctos SOLO en staging (archivos nuevos)
+          find "$STAGING" -type d -exec chmod 755 {} \;
+          find "$STAGING" -type f -exec chmod 644 {} \;
 
-          # 4) Backup del TARGET actual
+          # 4) Backup
           mkdir -p "$BACKUP"
           [ -f "$TARGET/index.html" ] && cp "$TARGET/index.html" "$BACKUP/" || true
           [ -f "$TARGET/.htaccess" ]  && cp "$TARGET/.htaccess"  "$BACKUP/" || true
           [ -d "$TARGET/assets" ]     && cp -r "$TARGET/assets"  "$BACKUP/" || true
 
-          # 5) Swap atómico
+          # 5) Swap atómico — reemplazar solo index.html, .htaccess y assets/
+          #    NO tocar otros subdirectorios: api-toolbox, sounds, .builds, etc.
           rm -f "$TARGET/index.html" "$TARGET/.htaccess"
           rm -rf "$TARGET/assets"
-          cp -a "$STAGING/." "$TARGET/"
+          cp -p "$STAGING/index.html" "$TARGET/index.html"
+          cp -p "$STAGING/.htaccess"  "$TARGET/.htaccess" 2>/dev/null || true
+          cp -rp "$STAGING/assets"    "$TARGET/assets"
           rm -rf "$STAGING"
 
-          # 6) Re-aplicar permisos (|| true: tolerar rutas fantasma en .builds/)
-          find "$TARGET" -type d -exec chmod 755 {} \; 2>/dev/null || true
-          find "$TARGET" -type f -exec chmod 644 {} \; 2>/dev/null || true
-
-          # 7) Health check post-deploy
+          # 6) Health check inline
           test -f "$TARGET/index.html" || { echo "❌ POST-DEPLOY: falta index.html"; exit 1; }
-          test -f "$TARGET/.htaccess"  || echo "⚠️  POST-DEPLOY: falta .htaccess"
-          echo "✅ Deploy atómico completado: atlas.aliuntravelsrl.com"
-          echo "   index.html: $(stat -c%s $TARGET/index.html) bytes"
-          echo "   backup en:  $BACKUP"
-
-          # 8) Limpieza
-          rm -f /tmp/admin-dist.tar.gz
-
-          # 9) Limpiar backups antiguos (mantener últimos 5)
-          ls -1dt "$HOME/domains/atlas.aliuntravelsrl.com/_backup_"* 2>/dev/null | tail -n +6 | xargs -r rm -rf
-          ENDSSH
-
-      - name: Verify deploy on server (filesystem)
-        run: |
-          ssh -p ${{ secrets.HOSTINGER_PORT }} -i ~/.ssh/id_ed25519 \
-            ${{ secrets.HOSTINGER_USER }}@${{ secrets.HOSTINGER_HOST }} << 'ENDSSH'
-          set -euo pipefail
-          TARGET="$HOME/domains/atlas.aliuntravelsrl.com/public_html"
-
-          if [ ! -s "$TARGET/index.html" ]; then
-            echo "❌ index.html falta o está vacío"
-            ls -la "$TARGET/" | head -20
-            exit 1
-          fi
-          INDEX_SIZE=$(stat -c%s "$TARGET/index.html")
-          [ "$INDEX_SIZE" -gt 100 ] || { echo "❌ index.html demasiado pequeño ($INDEX_SIZE bytes)"; exit 1; }
-
-          [ -s "$TARGET/.htaccess" ] || echo "⚠️  .htaccess falta o vacío — SPA routing puede fallar"
-
-          test -d "$TARGET/assets" || { echo "❌ /assets falta"; exit 1; }
+          test -d "$TARGET/assets"     || { echo "❌ POST-DEPLOY: falta assets/"; exit 1; }
           JS_COUNT=$(find "$TARGET/assets" -name '*.js' | wc -l)
-          [ "$JS_COUNT" -gt 0 ] || { echo "❌ /assets sin bundles JS"; exit 1; }
+          [ "$JS_COUNT" -gt 0 ] || { echo "❌ POST-DEPLOY: sin bundles JS"; exit 1; }
+          echo "✅ Deploy OK: index=$(stat -c%s $TARGET/index.html)B · JS=$JS_COUNT · backup=$BACKUP"
 
-          test -r "$TARGET/index.html" || { echo "❌ index.html no legible"; exit 1; }
-
-          echo "✅ POST-DEPLOY OK: index=$INDEX_SIZE bytes · assets/*.js=$JS_COUNT"
+          # 7) Limpieza
+          rm -f /tmp/admin-dist.tar.gz
+          ls -1dt "$HOME/domains/atlas.aliuntravelsrl.com/_backup_"* 2>/dev/null | tail -n +6 | xargs -r rm -rf
           ENDSSH
 
       - name: Cleanup SSH key
