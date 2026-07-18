@@ -157,6 +157,11 @@ export const hotelService = {
 
           const updates = { updated_at: new Date().toISOString() };
           if (payload.gallery_data !== undefined) updates.gallery_data = payload.gallery_data;
+          if (payload.image_url !== undefined) updates.about_image = payload.image_url;
+          if (payload.about_image !== undefined) updates.about_image = payload.about_image;
+          if (payload.restaurants_data !== undefined) updates.restaurants_data = payload.restaurants_data;
+          if (payload.services_data !== undefined) updates.services_data = payload.services_data;
+          if (payload.rooms_data !== undefined) updates.rooms_data = payload.rooms_data;
           
           if (payload.video_id !== undefined) {
              updates.video_id = String(payload.video_id);
@@ -171,7 +176,7 @@ export const hotelService = {
               .from('hotels_master')
               .update(updates)
               .eq('id', hotelId)
-              .select('id, gallery_data, video_id, video_url')
+              .select('id, gallery_data, video_id, video_url, about_image, restaurants_data, services_data, rooms_data')
               .maybeSingle();
 
           if (error) throw error;

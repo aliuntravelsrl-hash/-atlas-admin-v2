@@ -19,6 +19,24 @@ const relativeTime = (isoString) => {
   return `Hace ${Math.round(mins / 60)} h`;
 };
 
+const renderMoney = (item) => {
+  if (!item) return '0.00';
+  const currency = item.currency || 'USD';
+  const amount = parseFloat(item.total_amount || 0);
+  const amountDop = parseFloat(item.total_amount_dop || 0);
+
+  if (currency === 'DOP') {
+    if (amountDop > 0) {
+      return `RD$ ${Number(amountDop).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+    }
+    if (amount < 2000) {
+      return `RD$ ${Number(amount * 60).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+    }
+    return `RD$ ${Number(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+  }
+  return `$ ${Number(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+};
+
 // AbortSignal.timeout no existe en Safari < 16 / Chrome < 105
 // Usar un wrapper seguro
 const fetchWithTimeout = (url, opts = {}, ms = 10000) => {
@@ -245,7 +263,7 @@ export const MissionControlLive = () => {
 
         const { data: gapBookings } = await supabase
           .from('bookings')
-          .select('id, booking_reference, total_amount, currency, created_at, lead_guest_name, voucher_code, voucher_id')
+          .select('id, booking_reference, total_amount, total_amount_dop, currency, created_at, lead_guest_name, voucher_code, voucher_id')
           .eq('payment_status', 'paid')
           .or('voucher_code.is.null,voucher_id.is.null');
 
@@ -272,7 +290,7 @@ export const MissionControlLive = () => {
         // Feed OPERARIOS — bookings por updated_at (cambios de estado reales)
         const { data: recent } = await supabase
           .from('bookings')
-          .select('booking_reference, lead_guest_name, status, payment_status, created_at, updated_at, total_amount, currency, booking_type, fulfillment_status')
+          .select('booking_reference, lead_guest_name, status, payment_status, created_at, updated_at, total_amount, total_amount_dop, currency, booking_type, fulfillment_status')
           .order('updated_at', { ascending: false })
           .limit(15);
         setRecentActivity(recent || []);
@@ -502,7 +520,7 @@ export const MissionControlLive = () => {
               <div key={b.id} className="text-xs flex items-center justify-between bg-rose-950/60 border border-rose-900/40 px-3 py-1.5 rounded-lg text-rose-300">
                 <span className="font-bold">{b.booking_reference || 'REF-N/A'} — {b.lead_guest_name || 'Huésped'}</span>
                 <span className="font-mono bg-rose-500/20 px-2 py-0.5 rounded text-[10px]">
-                  {b.currency} {Number(b.total_amount||0).toLocaleString(undefined,{minimumFractionDigits:2})}
+                  {renderMoney(b)}
                 </span>
               </div>
             ))}
@@ -701,7 +719,7 @@ export const MissionControlLive = () => {
                   <span className="text-slate-500 ml-2">{p.lead_guest_name || p.booking_reference || 'Huésped'}</span>
                 </div>
                 <div className="text-right">
-                  <div className="font-mono text-amber-400">{p.currency} {Number(p.total_amount||0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                  <div className="font-mono text-amber-400">{renderMoney(p)}</div>
                   <div className="text-[9px] text-slate-500">{Math.round((Date.now() - new Date(p.created_at).getTime()) / 3600000)} h estancado</div>
                 </div>
               </div>
@@ -1125,7 +1143,7 @@ export const MissionControlLive = () => {
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-white font-semibold truncate max-w-[120px]">{act.lead_guest_name || 'Huésped'}</span>
-                        <span className="text-[10px] font-mono text-slate-300">{act.currency} {Number(act.total_amount||0).toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                        <span className="text-[10px] font-mono text-slate-300">{renderMoney(act)}</span>
                       </div>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className={`px-2 py-0.5 text-[8px] font-black uppercase rounded border ${actionColor}`}>{actionLabel}</span>
