@@ -99,6 +99,7 @@ export default function BookingOpsPanel() {
   const [bookings, setBookings]             = useState([])
   const [hotels, setHotels]                 = useState([])
   const [reciboBookingId, setReciboBookingId] = useState('')
+  const [crmLeads, setCrmLeads]             = useState([])
 
   // ── Tasa de cambio dinámica desde exchange_rates ──────────────
   const { rate: EXCHANGE_RATE } = useExchangeRate()
@@ -118,6 +119,15 @@ export default function BookingOpsPanel() {
       .then(({ data }) => setHotels(data || []))
 
     loadBookings()
+    loadCrmLeads()
+  }, [])
+
+  const loadCrmLeads = useCallback(async () => {
+    const { data } = await supabaseAdmin
+      .from('crm_leads')
+      .select('id, full_name, phone, email')
+      .order('updated_at', { ascending: false })
+    setCrmLeads(data || [])
   }, [])
 
   const loadBookings = useCallback(async () => {
@@ -174,6 +184,8 @@ export default function BookingOpsPanel() {
       {activeTab === 'nueva' && (
         <TabNuevaReserva
           hotels={hotels}
+          crmLeads={crmLeads}
+          onRefreshLeads={loadCrmLeads}
           onCreated={(ref) => {
             showToast(`✓ Reserva creada: ${ref}`)
             loadBookings()
@@ -228,6 +240,8 @@ export default function BookingOpsPanel() {
 
       {activeTab === 'excursion' && (
         <TabExcursion
+          crmLeads={crmLeads}
+          onRefreshLeads={loadCrmLeads}
           onCreated={(ref) => {
             showToast(`✓ Reserva de excursión creada: ${ref}`)
             loadBookings()
@@ -286,11 +300,12 @@ function HabitacionBlock({ idx, hab, rooms, onChange, onRemove, canRemove, natio
 
 const blankHab = () => ({ room_id: '', guest_name: '', adults: 2, children: 0, infants: 0, precio: '' })
 
-function TabNuevaReserva({ hotels, onCreated, onError }) {
+function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onError }) {
   const [form, setForm] = useState({
     hotel_id: '', check_in: '', check_out: '',
     lead_guest_name: '', lead_email: '', lead_phone: '', nationality: 'DO',
     deposit_amount: '', payment_method: '', internal_notes: '',
+    lead_id: '',
   })
   const [habitaciones, setHabitaciones] = useState([blankHab()])
   const [rooms, setRooms]   = useState([])
@@ -332,10 +347,6 @@ function TabNuevaReserva({ hotels, onCreated, onError }) {
     const hotel = hotels.find(h => h.id === form.hotel_id)
     const groupId = isGrupal ? crypto.randomUUID() : null
     const depositoPorHabRaw = isGrupal && dep > 0 ? dep / habitaciones.length : dep
-    // FIX 2026-07-08 (ATLAS-TECH): el depósito se ingresa en la moneda mostrada
-    // en el label (getCurrency(nationality)), pero deposit_amount debe guardarse
-    // en USD canónico (mismo patrón que TabPago/atlas_payments), y
-    // deposit_amount_dop en su equivalente DOP.
     const monedaDeposito = getCurrency(form.nationality)
     const depositoUsdPorHab = monedaDeposito === 'DOP'
       ? toUSD(depositoPorHabRaw, form.nationality, EXCHANGE_RATE)
@@ -344,14 +355,42 @@ function TabNuevaReserva({ hotels, onCreated, onError }) {
       ? Math.round(depositoPorHabRaw)
       : Math.round(depositoPorHabRaw * EXCHANGE_RATE)
 
-    // FIX 2026-07-08 (ATLAS-TECH): antes esta rama guardaba currency:'USD'
-    // y total_amount_dop siempre como precioHab*rate, sin importar la
-    // nacionalidad — a pesar de que el label del input (priceLbl en
-    // HabitacionBlock) le pide al operador el precio en la moneda correcta
-    // según nacionalidad (DOP para 'DO', USD para el resto). Ahora se replica
-    // el mismo patrón ya usado y verificado en TabExcursion: total_amount
-    // guarda siempre el equivalente USD canónico, total_amount_dop el
-    // equivalente DOP, y currency refleja la moneda real que el cliente ve.
+    let targetLeadId = form.lead_id || null
+
+    // ── Sincronización del CRM: Crear o Actualizar Lead ──────────────
+    if (!targetLeadId) {
+      // Creación en frío: Insertar lead manual nuevo
+      targetLeadId = crypto.randomUUID()
+      const { error: errLead } = await supabaseAdmin.from('crm_leads').insert({
+        id: targetLeadId,
+        full_name: form.lead_guest_name,
+        phone: form.lead_phone || null,
+        email: form.lead_email || null,
+        source: 'manual',
+        stage: 'confirmada',
+        hotel_interest: hotel?.name || null,
+        message: 'Creado automáticamente al registrar reserva manual.'
+      })
+      if (errLead) {
+        setLoading(false)
+        onError('Error al crear lead en CRM: ' + errLead.message)
+        return
+      }
+    } else {
+      // Actualizar etapa de lead existente a confirmada
+      const { error: errLeadUpdate } = await supabaseAdmin
+        .from('crm_leads')
+        .update({
+          stage: 'confirmada',
+          hotel_interest: hotel?.name || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', targetLeadId)
+      if (errLeadUpdate) {
+        console.error('Error actualizando lead stage:', errLeadUpdate.message)
+      }
+    }
+
     const rows = habitaciones.map((hab, i) => {
       const room = rooms.find(r => r.id === hab.room_id)
       const precioHab = parseFloat(hab.precio) || 0
@@ -360,6 +399,7 @@ function TabNuevaReserva({ hotels, onCreated, onError }) {
       const totalDopHab = monedaHab === 'DOP' ? Math.round(precioHab) : Math.round(precioHab * EXCHANGE_RATE)
       return {
         booking_reference:   genRef(),
+        lead_id:             targetLeadId, // Enlazar lead
         hotel_id:            form.hotel_id,
         hotel_code:          hotel?.slug || null,
         room_id:             hab.room_id || null,
@@ -396,11 +436,13 @@ function TabNuevaReserva({ hotels, onCreated, onError }) {
 
     setLoading(false)
     if (error) { onError('Error: ' + error.message); return }
+    if (onRefreshLeads) await onRefreshLeads()
     onCreated(rows.map(r => r.booking_reference).join(', '))
     setForm({
       hotel_id: '', check_in: '', check_out: '',
       lead_guest_name: '', lead_email: '', lead_phone: '', nationality: 'DO',
       deposit_amount: '', payment_method: '', internal_notes: '',
+      lead_id: '',
     })
     setHabitaciones([blankHab()])
   }
@@ -451,16 +493,56 @@ function TabNuevaReserva({ hotels, onCreated, onError }) {
       </div>
 
       {/* Huésped principal */}
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Nombre del huésped principal *">
-          <input className={inputCls} type="text" placeholder="Juan Pérez" value={form.lead_guest_name} onChange={e => set('lead_guest_name', e.target.value)} />
+      <div className="bg-gray-900/40 border border-gray-800/80 rounded-xl p-4 space-y-4">
+        <span className="text-xs font-black text-gray-500 uppercase tracking-widest block mb-1">
+          Información del Huésped & Enlace CRM
+        </span>
+        <Field label="Asociar Lead del CRM (WhatsApp)">
+          <select
+            className={selectCls}
+            value={form.lead_id}
+            onChange={e => {
+              const leadId = e.target.value
+              const lead = crmLeads.find(l => l.id === leadId)
+              if (lead) {
+                setForm(f => ({
+                  ...f,
+                  lead_id: leadId,
+                  lead_guest_name: lead.full_name,
+                  lead_email: lead.email || '',
+                  lead_phone: lead.phone || '',
+                }))
+              } else {
+                setForm(f => ({
+                  ...f,
+                  lead_id: '',
+                  lead_guest_name: '',
+                  lead_email: '',
+                  lead_phone: '',
+                }))
+              }
+            }}
+          >
+            <option value="">-- Crear Lead Manual Nuevo en pipeline --</option>
+            {crmLeads.map(l => (
+              <option key={l.id} value={l.id}>
+                {l.full_name} ({l.phone || 'Sin teléfono'})
+              </option>
+            ))}
+          </select>
         </Field>
-        <Field label="Email">
-          <input className={inputCls} type="email" placeholder="juan@email.com" value={form.lead_email} onChange={e => set('lead_email', e.target.value)} />
-        </Field>
-        <Field label="Teléfono">
-          <input className={inputCls} type="text" placeholder="+1 809 000 0000" value={form.lead_phone} onChange={e => set('lead_phone', e.target.value)} />
-        </Field>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Nombre del huésped principal *">
+            <input className={inputCls} type="text" placeholder="Juan Pérez" value={form.lead_guest_name} onChange={e => set('lead_guest_name', e.target.value)} />
+          </Field>
+          <Field label="Email">
+            <input className={inputCls} type="email" placeholder="juan@email.com" value={form.lead_email} onChange={e => set('lead_email', e.target.value)} />
+          </Field>
+          <Field label="Teléfono">
+            <input className={inputCls} type="text" placeholder="+1 809 000 0000" value={form.lead_phone} onChange={e => set('lead_phone', e.target.value)} />
+          </Field>
+        </div>
       </div>
 
       <hr className="border-gray-800" />
@@ -1124,7 +1206,7 @@ ${payments.length > 0 ? `<hr><p style="font-weight:700;margin:0 0 6px">Historial
 // ════════════════════════════════════════════════════════════
 // TAB 5 — RESERVA DE EXCURSIÓN (NUEVO)
 // ════════════════════════════════════════════════════════════
-function TabExcursion({ onCreated, onError }) {
+function TabExcursion({ crmLeads = [], onRefreshLeads, onCreated, onError }) {
   const [excursions, setExcursions] = useState([])
   const [plans, setPlans]           = useState([])
   const [form, setForm]             = useState({
@@ -1133,6 +1215,7 @@ function TabExcursion({ onCreated, onError }) {
     fecha: '', adults: 2, children: 0, infants: 0,
     total_amount: '', lead_guest_name: '', lead_email: '', lead_phone: '',
     nationality: 'DO', payment_method: '', internal_notes: '',
+    lead_id: '',
   })
   const [loading, setLoading] = useState(false)
 
@@ -1174,7 +1257,6 @@ function TabExcursion({ onCreated, onError }) {
     const totalUSD = plan
       ? (adults * plan.price_adult_usd) + (children * plan.price_child_usd)
       : 0
-    // Si es DO → mostrar en DOP, guardar equivalente
     const total = getCurrency(form.nationality) === 'DOP'
       ? Math.round(totalUSD * EXCHANGE_RATE)
       : totalUSD
@@ -1211,16 +1293,49 @@ function TabExcursion({ onCreated, onError }) {
 
     setLoading(true)
     const ref = genRef()
+    let targetLeadId = form.lead_id || null
+
+    // ── Sincronización del CRM: Crear o Actualizar Lead ──────────────
+    if (!targetLeadId) {
+      targetLeadId = crypto.randomUUID()
+      const { error: errLead } = await supabaseAdmin.from('crm_leads').insert({
+        id: targetLeadId,
+        full_name: form.lead_guest_name,
+        phone: form.lead_phone || null,
+        email: form.lead_email || null,
+        source: 'manual',
+        stage: 'confirmada',
+        hotel_interest: form.excursion_name || null,
+        message: 'Creado automáticamente al registrar excursión manual.'
+      })
+      if (errLead) {
+        setLoading(false)
+        onError('Error al crear lead en CRM: ' + errLead.message)
+        return
+      }
+    } else {
+      const { error: errLeadUpdate } = await supabaseAdmin
+        .from('crm_leads')
+        .update({
+          stage: 'confirmada',
+          hotel_interest: form.excursion_name || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', targetLeadId)
+      if (errLeadUpdate) {
+        console.error('Error actualizando lead stage:', errLeadUpdate.message)
+      }
+    }
 
     const { error } = await supabaseAdmin.from('bookings').insert({
       booking_reference:  ref,
       booking_type:       'excursion',
       source:             'manual_admin',
-      // Reutilizamos campos existentes de bookings
-      hotel_code:         form.excursion_slug,    // excursion_slug
-      room_name:          form.plan_name,          // plan_name
+      lead_id:            targetLeadId,
+      hotel_code:         form.excursion_slug,
+      room_name:          form.plan_name,
       check_in:           form.fecha,
-      check_out:          form.fecha,              // mismo día
+      check_out:          form.fecha,
       nights:             0,
       adults:             parseInt(form.adults),
       children:           parseInt(form.children),
@@ -1247,6 +1362,7 @@ function TabExcursion({ onCreated, onError }) {
 
     setLoading(false)
     if (error) { onError('Error: ' + error.message); return }
+    if (onRefreshLeads) await onRefreshLeads()
     onCreated(ref)
     setForm({
       excursion_id: '', excursion_slug: '', excursion_name: '',
@@ -1254,6 +1370,7 @@ function TabExcursion({ onCreated, onError }) {
       fecha: '', adults: 2, children: 0, infants: 0,
       total_amount: '', lead_guest_name: '', lead_email: '', lead_phone: '',
       nationality: 'DO', payment_method: '', internal_notes: '',
+      lead_id: '',
     })
     setPlans([])
   }
