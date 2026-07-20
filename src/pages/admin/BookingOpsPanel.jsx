@@ -741,12 +741,28 @@ function TabPago({ bookings, onRegistered, onError }) {
     ? parseFloat((parseFloat(booking?.total_amount || 0) / exchangeRate).toFixed(2))
     : parseFloat(booking?.total_amount || 0)
 
-  // paid siempre viene en USD de atlas_payments
-  const paidUSD  = payments.reduce((s, p) => s + parseFloat(p.amount || 0), 0)
+  // Recalcular el pagado acumulado en USD y DOP respetando la moneda de cada abono
+  const paidUSD = payments.reduce((s, p) => {
+    const amt = parseFloat(p.amount || 0);
+    const pCur = p.currency || 'USD';
+    if (pCur === 'DOP') {
+      return s + parseFloat((amt / exchangeRate).toFixed(2));
+    }
+    return s + amt;
+  }, 0);
+
+  const paidDOP = payments.reduce((s, p) => {
+    const amt = parseFloat(p.amount || 0);
+    const pCur = p.currency || 'USD';
+    if (pCur === 'DOP') {
+      return s + amt;
+    }
+    return s + Math.round(amt * exchangeRate);
+  }, 0);
 
   // Para display: si reserva es DOP mostramos en DOP; si USD mostramos en USD
   const total   = isDOP ? parseFloat(booking?.total_amount || 0) : totalUSD
-  const paid    = isDOP ? Math.round(paidUSD * exchangeRate) : paidUSD
+  const paid    = isDOP ? paidDOP : paidUSD
   const balance = Math.max(0, total - paid)
   const pct     = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0
 
@@ -846,9 +862,9 @@ function TabPago({ bookings, onRegistered, onError }) {
           {/* Mostrar siempre en la moneda del cliente */}
           {isDOP ? (
             <p className="text-gray-400 text-xs mb-3">
-              Total: RD$ {(totalDOP || 0).toLocaleString('es-DO')} ·
-              Pagado: <span className="text-emerald-400">RD$ {(paidDOP || 0).toLocaleString('es-DO')}</span> ·
-              Pendiente: <span className="text-red-400">RD$ {(balanceDOP || 0).toLocaleString('es-DO')}</span>
+              Total: RD$ {(total || 0).toLocaleString('es-DO')} ·
+              Pagado: <span className="text-emerald-400">RD$ {(paid || 0).toLocaleString('es-DO')}</span> ·
+              Pendiente: <span className="text-red-400">RD$ {(balance || 0).toLocaleString('es-DO')}</span>
             </p>
           ) : (
             <p className="text-gray-400 text-xs mb-3">
