@@ -306,6 +306,7 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
     lead_guest_name: '', lead_email: '', lead_phone: '', nationality: 'DO',
     deposit_amount: '', payment_method: '', internal_notes: '',
     lead_id: '',
+    crear_lead_nuevo: true,
   })
   const [habitaciones, setHabitaciones] = useState([blankHab()])
   const [rooms, setRooms]   = useState([])
@@ -358,8 +359,8 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
     let targetLeadId = form.lead_id || null
 
     // ── Sincronización del CRM: Crear o Actualizar Lead ──────────────
-    if (!targetLeadId) {
-      // Creación en frío: Insertar lead manual nuevo
+    if (!targetLeadId && form.crear_lead_nuevo) {
+      // Creación en frío: Insertar lead manual nuevo si está activo el checkbox
       targetLeadId = crypto.randomUUID()
       const { error: errLead } = await supabaseAdmin.from('crm_leads').insert({
         id: targetLeadId,
@@ -376,7 +377,7 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
         onError('Error al crear lead en CRM: ' + errLead.message)
         return
       }
-    } else {
+    } else if (targetLeadId) {
       // Actualizar etapa de lead existente a confirmada
       const { error: errLeadUpdate } = await supabaseAdmin
         .from('crm_leads')
@@ -511,6 +512,7 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
                   lead_guest_name: lead.full_name,
                   lead_email: lead.email || '',
                   lead_phone: lead.phone || '',
+                  crear_lead_nuevo: false,
                 }))
               } else {
                 setForm(f => ({
@@ -519,11 +521,12 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
                   lead_guest_name: '',
                   lead_email: '',
                   lead_phone: '',
+                  crear_lead_nuevo: true,
                 }))
               }
             }}
           >
-            <option value="">-- Crear Lead Manual Nuevo en pipeline --</option>
+            <option value="">-- No asociar lead existente (Crear nuevo o dejar huérfano) --</option>
             {crmLeads.map(l => (
               <option key={l.id} value={l.id}>
                 {l.full_name} ({l.phone || 'Sin teléfono'})
@@ -531,6 +534,21 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
             ))}
           </select>
         </Field>
+
+        {!form.lead_id && (
+          <div className="flex items-center gap-2 mt-1 bg-gray-950/60 p-2.5 rounded-lg border border-gray-800/80">
+            <input
+              type="checkbox"
+              id="chk_crear_lead_hotel"
+              className="rounded border-gray-700 bg-gray-950 text-amber-500 focus:ring-amber-500 h-4 w-4 cursor-pointer"
+              checked={form.crear_lead_nuevo}
+              onChange={e => set('crear_lead_nuevo', e.target.checked)}
+            />
+            <label htmlFor="chk_crear_lead_hotel" className="text-xs text-gray-400 select-none cursor-pointer">
+              Crear automáticamente un nuevo Lead manual en el pipeline (Etapa "Confirmada")
+            </label>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Nombre del huésped principal *">
@@ -1216,6 +1234,7 @@ function TabExcursion({ crmLeads = [], onRefreshLeads, onCreated, onError }) {
     total_amount: '', lead_guest_name: '', lead_email: '', lead_phone: '',
     nationality: 'DO', payment_method: '', internal_notes: '',
     lead_id: '',
+    crear_lead_nuevo: true,
   })
   const [loading, setLoading] = useState(false)
 
@@ -1296,7 +1315,7 @@ function TabExcursion({ crmLeads = [], onRefreshLeads, onCreated, onError }) {
     let targetLeadId = form.lead_id || null
 
     // ── Sincronización del CRM: Crear o Actualizar Lead ──────────────
-    if (!targetLeadId) {
+    if (!targetLeadId && form.crear_lead_nuevo) {
       targetLeadId = crypto.randomUUID()
       const { error: errLead } = await supabaseAdmin.from('crm_leads').insert({
         id: targetLeadId,
@@ -1313,7 +1332,7 @@ function TabExcursion({ crmLeads = [], onRefreshLeads, onCreated, onError }) {
         onError('Error al crear lead en CRM: ' + errLead.message)
         return
       }
-    } else {
+    } else if (targetLeadId) {
       const { error: errLeadUpdate } = await supabaseAdmin
         .from('crm_leads')
         .update({
@@ -1438,37 +1457,94 @@ function TabExcursion({ crmLeads = [], onRefreshLeads, onCreated, onError }) {
       </div>
 
       {/* Huésped */}
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Nombre del huésped *">
-          <input className={inputCls} type="text" placeholder="Juan Pérez"
-            value={form.lead_guest_name} onChange={e => set('lead_guest_name', e.target.value)} />
-        </Field>
-        <Field label="Nacionalidad">
-          <select className={selectCls} value={form.nationality} onChange={e => {
-            set('nationality', e.target.value)
-            // Recalcular total con nueva moneda si ya hay plan
-            if (form.plan_id) recalcTotal(form.adults, form.children)
-          }}>
-            <option value="DO">🇩🇴 Dominicana (DOP)</option>
-            <option value="US">🇺🇸 USA (USD)</option>
-            <option value="PR">🇵🇷 Puerto Rico (USD)</option>
-            <option value="OTHER">🌍 Otra (USD)</option>
+      <div className="bg-gray-900/40 border border-gray-800/80 rounded-xl p-4 space-y-4">
+        <span className="text-xs font-black text-gray-500 uppercase tracking-widest block mb-1">
+          Información del Cliente & Enlace CRM
+        </span>
+        <Field label="Asociar Lead del CRM (WhatsApp)">
+          <select
+            className={selectCls}
+            value={form.lead_id}
+            onChange={e => {
+              const leadId = e.target.value
+              const lead = crmLeads.find(l => l.id === leadId)
+              if (lead) {
+                setForm(f => ({
+                  ...f,
+                  lead_id: leadId,
+                  lead_guest_name: lead.full_name,
+                  lead_email: lead.email || '',
+                  lead_phone: lead.phone || '',
+                  crear_lead_nuevo: false,
+                }))
+              } else {
+                setForm(f => ({
+                  ...f,
+                  lead_id: '',
+                  lead_guest_name: '',
+                  lead_email: '',
+                  lead_phone: '',
+                  crear_lead_nuevo: true,
+                }))
+              }
+            }}
+          >
+            <option value="">-- No asociar lead existente (Crear nuevo o dejar huérfano) --</option>
+            {crmLeads.map(l => (
+              <option key={l.id} value={l.id}>
+                {l.full_name} ({l.phone || 'Sin teléfono'})
+              </option>
+            ))}
           </select>
         </Field>
-        <Field label="Email">
-          <input className={inputCls} type="email" placeholder="juan@email.com"
-            value={form.lead_email} onChange={e => set('lead_email', e.target.value)} />
-        </Field>
-        <Field label="Teléfono">
-          <input className={inputCls} type="text" placeholder="+1 809 000 0000"
-            value={form.lead_phone} onChange={e => set('lead_phone', e.target.value)} />
-        </Field>
-        <Field label="Método de pago">
-          <select className={selectCls} value={form.payment_method} onChange={e => set('payment_method', e.target.value)}>
-            <option value="">Seleccionar...</option>
-            {getMetodos(form.nationality).map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-          </select>
-        </Field>
+
+        {!form.lead_id && (
+          <div className="flex items-center gap-2 mt-1 bg-gray-950/60 p-2.5 rounded-lg border border-gray-800/80">
+            <input
+              type="checkbox"
+              id="chk_crear_lead_excursion"
+              className="rounded border-gray-700 bg-gray-950 text-amber-500 focus:ring-amber-500 h-4 w-4 cursor-pointer"
+              checked={form.crear_lead_nuevo}
+              onChange={e => set('crear_lead_nuevo', e.target.checked)}
+            />
+            <label htmlFor="chk_crear_lead_excursion" className="text-xs text-gray-400 select-none cursor-pointer">
+              Crear automáticamente un nuevo Lead manual en el pipeline (Etapa "Confirmada")
+            </label>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Nombre del huésped *">
+            <input className={inputCls} type="text" placeholder="Juan Pérez"
+              value={form.lead_guest_name} onChange={e => set('lead_guest_name', e.target.value)} />
+          </Field>
+          <Field label="Nacionalidad">
+            <select className={selectCls} value={form.nationality} onChange={e => {
+              set('nationality', e.target.value)
+              // Recalcular total con nueva moneda si ya hay plan
+              if (form.plan_id) recalcTotal(form.adults, form.children)
+            }}>
+              <option value="DO">🇩🇴 Dominicana (DOP)</option>
+              <option value="US">🇺🇸 USA (USD)</option>
+              <option value="PR">🇵🇷 Puerto Rico (USD)</option>
+              <option value="OTHER">🌍 Otra (USD)</option>
+            </select>
+          </Field>
+          <Field label="Email">
+            <input className={inputCls} type="email" placeholder="juan@email.com"
+              value={form.lead_email} onChange={e => set('lead_email', e.target.value)} />
+          </Field>
+          <Field label="Teléfono">
+            <input className={inputCls} type="text" placeholder="+1 809 000 0000"
+              value={form.lead_phone} onChange={e => set('lead_phone', e.target.value)} />
+          </Field>
+          <Field label="Método de pago">
+            <select className={selectCls} value={form.payment_method} onChange={e => set('payment_method', e.target.value)}>
+              <option value="">Seleccionar...</option>
+              {getMetodos(form.nationality).map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </Field>
+        </div>
       </div>
 
       {/* Precio + Notas */}
