@@ -307,6 +307,7 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
     deposit_amount: '', payment_method: '', internal_notes: '',
     lead_id: '',
     crear_lead_nuevo: true,
+    special_requests: '',
   })
   const [habitaciones, setHabitaciones] = useState([blankHab()])
   const [rooms, setRooms]   = useState([])
@@ -370,7 +371,7 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
         source: 'manual',
         stage: 'confirmada',
         hotel_interest: hotel?.name || null,
-        message: 'Creado automáticamente al registrar reserva manual.'
+        message: 'Creado automáticamente al registrar reserva manual.' + (form.special_requests ? `\n🛎️ Peticiones especiales: ${form.special_requests}` : '')
       })
       if (errLead) {
         setLoading(false)
@@ -384,6 +385,7 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
         .update({
           stage: 'confirmada',
           hotel_interest: hotel?.name || null,
+          message: form.special_requests ? `🛎️ Peticiones especiales: ${form.special_requests}` : 'Actualizado automáticamente al registrar reserva manual.',
           updated_at: new Date().toISOString()
         })
         .eq('id', targetLeadId)
@@ -428,6 +430,7 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
         booking_source:      'admin_manual',
         source:              'admin_manual',
         internal_notes:      form.internal_notes || null,
+        special_requests:    form.special_requests ? [form.special_requests] : [], // Guardar peticiones
         group_id:            groupId,
         group_room_number:   isGrupal ? i + 1 : null,
       }
@@ -444,6 +447,7 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
       lead_guest_name: '', lead_email: '', lead_phone: '', nationality: 'DO',
       deposit_amount: '', payment_method: '', internal_notes: '',
       lead_id: '',
+      special_requests: '',
     })
     setHabitaciones([blankHab()])
   }
@@ -601,7 +605,10 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
           </select>
         </Field>
         <Field label="Notas internas">
-          <input className={inputCls} type="text" placeholder="Observaciones..." value={form.internal_notes} onChange={e => set('internal_notes', e.target.value)} />
+          <input className={inputCls} type="text" placeholder="Observaciones internas..." value={form.internal_notes} onChange={e => set('internal_notes', e.target.value)} />
+        </Field>
+        <Field label="🛎️ Peticiones especiales (Huésped)">
+          <input className={inputCls} type="text" placeholder="Cama king, piso alto, habitaciones juntas..." value={form.special_requests} onChange={e => set('special_requests', e.target.value)} />
         </Field>
       </div>
 
@@ -1235,6 +1242,7 @@ function TabExcursion({ crmLeads = [], onRefreshLeads, onCreated, onError }) {
     nationality: 'DO', payment_method: '', internal_notes: '',
     lead_id: '',
     crear_lead_nuevo: true,
+    special_requests: '',
   })
   const [loading, setLoading] = useState(false)
 
@@ -1325,7 +1333,7 @@ function TabExcursion({ crmLeads = [], onRefreshLeads, onCreated, onError }) {
         source: 'manual',
         stage: 'confirmada',
         hotel_interest: form.excursion_name || null,
-        message: 'Creado automáticamente al registrar excursión manual.'
+        message: 'Creado automáticamente al registrar excursión manual.' + (form.special_requests ? `\n🛎️ Peticiones especiales: ${form.special_requests}` : '')
       })
       if (errLead) {
         setLoading(false)
@@ -1338,6 +1346,7 @@ function TabExcursion({ crmLeads = [], onRefreshLeads, onCreated, onError }) {
         .update({
           stage: 'confirmada',
           hotel_interest: form.excursion_name || null,
+          message: form.special_requests ? `🛎️ Peticiones especiales: ${form.special_requests}` : 'Actualizado automáticamente al registrar excursión manual.',
           updated_at: new Date().toISOString()
         })
         .eq('id', targetLeadId)
@@ -1376,6 +1385,7 @@ function TabExcursion({ crmLeads = [], onRefreshLeads, onCreated, onError }) {
         excursion_name: form.excursion_name,
         plan_id:        form.plan_id,
         plan_name:      form.plan_name,
+        notes:          form.special_requests || null,
       },
     })
 
@@ -1390,6 +1400,7 @@ function TabExcursion({ crmLeads = [], onRefreshLeads, onCreated, onError }) {
       total_amount: '', lead_guest_name: '', lead_email: '', lead_phone: '',
       nationality: 'DO', payment_method: '', internal_notes: '',
       lead_id: '',
+      special_requests: '',
     })
     setPlans([])
   }
@@ -1548,14 +1559,18 @@ function TabExcursion({ crmLeads = [], onRefreshLeads, onCreated, onError }) {
       </div>
 
       {/* Precio + Notas */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <Field label={`Precio total acordado (${getCurrency(form.nationality)}) *`}>
           <input className={inputCls} type="number" step="0.01" min="0" placeholder="0.00"
             value={form.total_amount} onChange={e => set('total_amount', e.target.value)} />
         </Field>
         <Field label="Notas internas">
-          <input className={inputCls} type="text" placeholder="Observaciones..."
+          <input className={inputCls} type="text" placeholder="Observaciones internas..."
             value={form.internal_notes} onChange={e => set('internal_notes', e.target.value)} />
+        </Field>
+        <Field label="🛎️ Peticiones especiales (Cliente)">
+          <input className={inputCls} type="text" placeholder="Requerimientos o notas adicionales..."
+            value={form.special_requests} onChange={e => set('special_requests', e.target.value)} />
         </Field>
       </div>
 
