@@ -326,8 +326,8 @@ export const MissionControlLive = () => {
 
         const { data: fetchedTasks } = await supabase
           .from('atlas_tasks')
-          .select('codigo, titulo, descripcion, asignado_a, asignado_tipo, prioridad, estado, tipo, frente, sprint, bloqueado, bloqueo_razon, updated_at, ejecutor, responsable_arquitectura, depende_de')
-          .not('estado', 'in', '("completado","archivado")')
+          .select('codigo, titulo, descripcion, asignado_a, asignado_tipo, prioridad, estado, tipo, frente, sprint, bloqueado, bloqueo_razon, updated_at, ejecutor, responsable_arquitectura, depende_de, cerrado_por, evidencia_url')
+          .not('estado', 'eq', 'archivado')
           .order('fecha_encargo', { ascending: false });
         setAtlasTasks(fetchedTasks || []);
       } catch (err) {
@@ -1003,14 +1003,45 @@ export const MissionControlLive = () => {
                   t.asignado_tipo === 'swarm'       ? '🤖 Swarm' :
                   t.asignado_tipo === 'antigravity' ? '👤 Director' :
                                                      '— sin clasificar';
+
+                // Reglas B-6 — Estados de Tarea
+                let statusText = '🔲 Pendiente';
+                let statusColor = 'text-slate-400';
+                let statusBg = 'bg-slate-800/40 border-slate-700/50';
+                let showDoneButton = true;
+
+                if (t.estado === 'completado') {
+                  if (t.cerrado_por && t.evidencia_url) {
+                    statusText = '✓ Hecho';
+                    statusColor = 'text-emerald-400';
+                    statusBg = 'bg-emerald-500/10 border-emerald-500/20';
+                    showDoneButton = false;
+                  } else {
+                    statusText = '⚠️ Sin verificar';
+                    statusColor = 'text-amber-500';
+                    statusBg = 'bg-amber-500/10 border-amber-500/20';
+                    showDoneButton = true;
+                  }
+                } else if (t.estado === 'en_progreso') {
+                  statusText = '⏳ En progreso';
+                  statusColor = 'text-blue-400';
+                  statusBg = 'bg-blue-500/10 border-blue-500/20';
+                  showDoneButton = true;
+                }
+
                 return (
                   <div key={t.codigo}
                     className="bg-slate-950 rounded-xl flex flex-col space-y-2.5 hover:border-slate-700 transition p-3.5 border"
                     style={{ borderLeft: `3px solid ${frenteColor(t.frente)}`, borderTop: '1px solid rgb(30 41 59)', borderRight: '1px solid rgb(30 41 59)', borderBottom: '1px solid rgb(30 41 59)' }}>
 
-                    {/* Fila superior: código + prioridad + bloqueado */}
+                    {/* Fila superior: código + prioridad + bloqueado + estado */}
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-bold text-blue-400 text-xs font-mono">{t.codigo}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-blue-400 text-xs font-mono">{t.codigo}</span>
+                        <span className={`px-2 py-0.5 text-[8px] font-black rounded border ${statusBg} ${statusColor}`}>
+                          {statusText}
+                        </span>
+                      </div>
                       <div className="flex items-center gap-1.5">
                         {t.bloqueado && (
                           <span className="px-1.5 py-0.5 text-[8px] font-black rounded bg-rose-500/15 border border-rose-500/20 text-rose-400" title={t.bloqueo_razon || 'Bloqueado'}>🔒 BLOQ</span>
@@ -1043,6 +1074,9 @@ export const MissionControlLive = () => {
                       {t.asignado_a && t.asignado_a !== destLabel.replace(/^[^ ]+ /, '') && (
                         <span className="text-[9px] text-slate-500">→ {t.asignado_a}</span>
                       )}
+                      {t.cerrado_por && (
+                        <span className="text-[9px] text-emerald-500">Cerrado por: {t.cerrado_por}</span>
+                      )}
                     </div>
 
                     {/* Fila inferior: frente + sprint + botón completar */}
@@ -1051,10 +1085,14 @@ export const MissionControlLive = () => {
                         <span style={{ color: frenteColor(t.frente) }}>{t.frente || '—'}</span>
                         {t.sprint && <span>· {t.sprint}</span>}
                       </div>
-                      <button onClick={() => handleCompletarTarea(t.codigo)}
-                        className="text-[9px] font-black uppercase px-2.5 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition">
-                        ✓ Hecho
-                      </button>
+                      {showDoneButton ? (
+                        <button onClick={() => handleCompletarTarea(t.codigo)}
+                          className="text-[9px] font-black uppercase px-2.5 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition">
+                          ✓ {t.estado === 'completado' ? 'Verificar' : 'Hecho'}
+                        </button>
+                      ) : (
+                        <span className="text-[9px] text-slate-600 font-bold">Verificado</span>
+                      )}
                     </div>
                   </div>
                 );
