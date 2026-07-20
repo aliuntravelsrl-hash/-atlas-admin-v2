@@ -797,8 +797,10 @@ function TabPago({ bookings, onRegistered, onError }) {
     const amountDOP = isDOP ? Math.round(rawAmount) : Math.round(rawAmount * exchangeRate)
 
     setLoading(true)
-    const newPaidUSD = paidUSDAccum + amountUSD
-    const newStatus  = newPaidUSD >= total ? 'paid' : 'partial'
+    const isPaidComplete = isDOP
+      ? (paidDOP + amountDOP) >= total
+      : (paidUSD + amountUSD) >= total
+    const newStatus = isPaidComplete ? 'paid' : 'partial'
 
     const { error: e1 } = await supabaseAdmin.from('atlas_payments').insert({
       booking_id:   bookingId,
@@ -833,6 +835,15 @@ function TabPago({ bookings, onRegistered, onError }) {
         deposit_amount_dop: newDepositDOP,
       })
       .eq('id', bookingId)
+
+    // ATL-013 / OPS-265: Actualizar etapa del Lead reactivamente
+    if (booking?.lead_id) {
+      const newLeadStage = newStatus === 'paid' ? 'ganado' : 'cotizado'
+      await supabaseAdmin
+        .from('crm_leads')
+        .update({ stage: newLeadStage })
+        .eq('id', booking.lead_id)
+    }
 
     setLoading(false)
     setPayments(prev => [...prev, {
