@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import AtlasExecutionPulse from './AtlasExecutionPulse';
+import DependencyIntelligence from './DependencyIntelligence';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -760,6 +761,9 @@ export const MissionControlLive = () => {
 
       {/* ── Atlas Execution Pulse ─────────────────────────────────────── */}
       <AtlasExecutionPulse atlasTasks={atlasTasks} />
+
+      {/* ── Dependency Intelligence ───────────────────────────────── */}
+      <DependencyIntelligence atlasTasks={atlasTasks} />
 
       {/* ── Grid principal ────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
