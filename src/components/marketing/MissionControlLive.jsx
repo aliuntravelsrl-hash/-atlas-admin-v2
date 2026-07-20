@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import AtlasExecutionPulse from './AtlasExecutionPulse';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -324,7 +325,7 @@ export const MissionControlLive = () => {
 
         const { data: fetchedTasks } = await supabase
           .from('atlas_tasks')
-          .select('codigo, titulo, descripcion, asignado_a, asignado_tipo, prioridad, estado, tipo, frente, sprint, bloqueado, bloqueo_razon')
+          .select('codigo, titulo, descripcion, asignado_a, asignado_tipo, prioridad, estado, tipo, frente, sprint, bloqueado, bloqueo_razon, updated_at, ejecutor, responsable_arquitectura, depende_de')
           .not('estado', 'in', '("completado","archivado")')
           .order('fecha_encargo', { ascending: false });
         setAtlasTasks(fetchedTasks || []);
@@ -454,7 +455,7 @@ export const MissionControlLive = () => {
       // Refrescar lista
       const { data: fetchedTasks } = await supabase
         .from('atlas_tasks')
-        .select('codigo, titulo, descripcion, asignado_a, asignado_tipo, prioridad, estado, tipo, frente, sprint, bloqueado, bloqueo_razon')
+        .select('codigo, titulo, descripcion, asignado_a, asignado_tipo, prioridad, estado, tipo, frente, sprint, bloqueado, bloqueo_razon, updated_at, ejecutor, responsable_arquitectura, depende_de')
         .not('estado', 'in', '("completado","archivado")')
         .order('fecha_encargo', { ascending: false });
       setAtlasTasks(fetchedTasks || []);
@@ -756,6 +757,9 @@ export const MissionControlLive = () => {
         </div>
         {tasaMensaje && <div className="text-[10px] text-slate-400 mt-2">{tasaMensaje}</div>}
       </div>
+
+      {/* ── Atlas Execution Pulse ─────────────────────────────────────── */}
+      <AtlasExecutionPulse atlasTasks={atlasTasks} />
 
       {/* ── Grid principal ────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
