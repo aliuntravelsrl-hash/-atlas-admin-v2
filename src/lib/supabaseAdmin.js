@@ -16,11 +16,8 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://oyihiyivdhfxpyiwnmqk.supabase.co';
 
-// Si no hay service key configurada, cae al anon key como fallback
-// (funciona porque la política UPDATE en bookings ahora es USING(true))
 const serviceKey = import.meta.env.VITE_SUPABASE_SERVICE_KEY || 
-                   import.meta.env.VITE_SUPABASE_ANON_KEY ||
-                   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95aWhpeWl2ZGhmeHB5aXdubXFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI0Mzk5NzUsImV4cCI6MjA3ODAxNTk3NX0.8jbifKF9FCExFN3PF1OeUFDVRoHyf652vMHpIgR1DSE';
+                   import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabaseAdmin = createClient(supabaseUrl, serviceKey, {
   auth: {
