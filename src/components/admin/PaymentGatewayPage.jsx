@@ -119,12 +119,36 @@ export default function PaymentGatewayPage() {
   const total    = parseFloat(booking?.total_amount || 0);
   const rate     = exchangeRate || 60;
 
-  const paidUSD  = payments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
-  const paidDisplay  = isDOP ? Math.round(paidUSD * rate) : paidUSD;
-  const totalDisplay = isDOP ? Math.round(total * rate) : total;
+  // Normalizar el cobrado acumulado respetando la moneda de cada abono
+  const paidDOP = payments.reduce((s, p) => {
+    const amt = parseFloat(p.amount || 0);
+    const pCur = p.currency || 'USD';
+    return s + (pCur === 'DOP' ? amt : Math.round(amt * rate));
+  }, 0);
+
+  const paidUSD = payments.reduce((s, p) => {
+    const amt = parseFloat(p.amount || 0);
+    const pCur = p.currency || 'USD';
+    return s + (pCur === 'DOP' ? parseFloat((amt / rate).toFixed(2)) : amt);
+  }, 0);
+
+  const totalDisplay = isDOP
+    ? (parseFloat(booking?.total_amount_dop) || Math.round(total * rate))
+    : total;
+  const paidDisplay  = isDOP ? paidDOP : paidUSD;
   const balance      = Math.max(0, totalDisplay - paidDisplay);
   const pct          = totalDisplay > 0 ? Math.min(100, Math.round((paidDisplay / totalDisplay) * 100)) : 0;
   const isPaid       = pct >= 100;
+
+  const getPaymentAmountDisplay = (p, isDOP, rate) => {
+    const amt = parseFloat(p.amount || 0);
+    const pCur = p.currency || 'USD';
+    if (pCur === 'DOP') {
+      return isDOP ? amt : parseFloat((amt / rate).toFixed(2));
+    } else {
+      return isDOP ? Math.round(amt * rate) : amt;
+    }
+  };
 
   const bancos = BANCOS[isDOP ? 'DOP' : 'USD'] || [];
 
@@ -244,14 +268,24 @@ export default function PaymentGatewayPage() {
 
     const amountUSD = isDOP ? parseFloat((rawAmount / rate).toFixed(2)) : rawAmount;
     const amountDOP = isDOP ? Math.round(rawAmount) : Math.round(rawAmount * rate);
-    const totalUSD  = isDOP ? parseFloat((total / rate).toFixed(2)) : total;
-    const newPaid   = paidUSD + amountUSD;
-    const newStatus = newPaid >= totalUSD ? 'paid' : 'partial';
+
+    const newPaidUSD = parseFloat((paidUSD + amountUSD).toFixed(2));
+    const newPaidDOP = paidDOP + amountDOP;
+
+    const totalUSD = isDOP
+      ? parseFloat((parseFloat(booking.total_amount_dop || 0) / rate).toFixed(2))
+      : total;
+
+    const isPaidComplete = isDOP
+      ? newPaidDOP >= (parseFloat(booking.total_amount_dop) || Math.round(total * rate))
+      : newPaidUSD >= totalUSD;
+
+    const newStatus = isPaidComplete ? 'paid' : 'partial';
 
     const { error: e1 } = await supabaseAdmin.from('atlas_payments').insert({
       booking_id:   booking.id,
-      amount:       amountUSD,
-      currency:     'USD',
+      amount:       isDOP ? amountDOP : amountUSD,
+      currency:     isDOP ? 'DOP' : 'USD',
       method:       metodo,
       payment_type: 'deposito',
       reference:    form.reference || null,
@@ -269,16 +303,15 @@ export default function PaymentGatewayPage() {
 
     if (e1) { setSubmitting(false); setSubmitErr('Error: ' + e1.message); return; }
 
-    const newDepositDOP = parseFloat(booking.deposit_amount_dop || 0) + amountDOP;
     await supabaseAdmin.from('bookings').update({
       payment_status:     newStatus,
-      deposit_amount:     parseFloat((paidUSD + amountUSD).toFixed(2)),
-      deposit_amount_dop: newDepositDOP,
+      deposit_amount:     newPaidUSD,
+      deposit_amount_dop: newPaidDOP,
       updated_at:         new Date().toISOString(),
     }).eq('id', booking.id);
 
     setPayments(prev => [
-      { id: Date.now(), amount: amountUSD, currency: 'USD', method: metodo,
+      { id: Date.now(), amount: isDOP ? amountDOP : amountUSD, currency: isDOP ? 'DOP' : 'USD', method: metodo,
         reference: form.reference, payer_name: form.payer_name,
         created_at: new Date().toISOString(), status: 'approved' },
       ...prev
@@ -441,7 +474,7 @@ export default function PaymentGatewayPage() {
                       <td style={{ padding: '12px 12px', color: '#94A3B8', fontFamily: 'monospace', fontSize: 12 }}>{p.reference || '—'}</td>
                       <td style={{ padding: '12px 12px', color: '#94A3B8' }}>{p.payer_name || '—'}</td>
                       <td style={{ padding: '12px 12px', fontWeight: 700, color: C.success, textAlign: 'right' }}>
-                        {fmtMoney(isDOP ? parseFloat(p.amount) * rate : parseFloat(p.amount), cur)}
+                        {fmtMoney(getPaymentAmountDisplay(p, isDOP, rate), cur)}
                       </td>
                     </tr>
                   ))}
