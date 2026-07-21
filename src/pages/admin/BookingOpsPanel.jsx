@@ -301,6 +301,7 @@ function HabitacionBlock({ idx, hab, rooms, onChange, onRemove, canRemove, natio
 const blankHab = () => ({ room_id: '', guest_name: '', adults: 2, children: 0, infants: 0, precio: '' })
 
 function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onError }) {
+  const { rate: EXCHANGE_RATE } = useExchangeRate()
   const [form, setForm] = useState({
     hotel_id: '', check_in: '', check_out: '',
     lead_guest_name: '', lead_email: '', lead_phone: '', nationality: 'DO',
@@ -616,9 +617,9 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
       {total > 0 && (
         <div className="bg-gray-900 rounded-lg p-4 text-sm space-y-1">
           {isGrupal && <Row label="Habitaciones" value={`${habitaciones.length} (${totalAdults} adultos, ${totalChildren} niños)`} />}
-          <Row label="Total acordado"   value={fmtMoney(total, form.nationality)} />
-          <Row label="Depósito"         value={dep > 0 ? fmtMoney(dep, form.nationality) : '—'} />
-          <Row label="Saldo pendiente"  value={fmtMoney(total - dep, form.nationality)} />
+          <Row label="Total acordado"   value={fmtMoney(getCurrency(form.nationality) === 'DOP' ? total / EXCHANGE_RATE : total, form.nationality, EXCHANGE_RATE)} />
+          <Row label="Depósito"         value={dep > 0 ? fmtMoney(getCurrency(form.nationality) === 'DOP' ? dep / EXCHANGE_RATE : dep, form.nationality, EXCHANGE_RATE) : '—'} />
+          <Row label="Saldo pendiente"  value={fmtMoney(getCurrency(form.nationality) === 'DOP' ? (total - dep) / EXCHANGE_RATE : (total - dep), form.nationality, EXCHANGE_RATE)} />
           {getCurrency(form.nationality) === 'USD' && (
             <Row label="Equivalente DOP" value={`RD$ ${Math.round(total * EXCHANGE_RATE).toLocaleString()}`} />
           )}
