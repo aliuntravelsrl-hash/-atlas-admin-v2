@@ -12,8 +12,20 @@ export default function BookingSummary({ step = 1 }) {
 
   if (!hotel) return null
 
-  const dep = quotation ? (quotation.total_usd * 0.30).toFixed(2) : null
-  const sal = quotation ? (quotation.total_usd * 0.70).toFixed(2) : null
+  const isDop = state.nationality_code === 'DO'
+  const exchangeRate = state.exchangeRate || 58.50
+
+  const formatPrice = (usdAmount) => {
+    const num = parseFloat(usdAmount) || 0
+    if (isDop) {
+      const dopAmount = Math.round(num * exchangeRate)
+      return `RD$ ${dopAmount.toLocaleString('es-DO')}`
+    }
+    return `$${num.toFixed(2)} USD`
+  }
+
+  const depVal = quotation ? (quotation.total_usd * 0.30) : 0
+  const salVal = quotation ? (quotation.total_usd * 0.70) : 0
 
   return (
     <aside className="bg-slate-900 border border-slate-700 rounded-3xl p-6 sticky top-6 space-y-5">
@@ -62,7 +74,7 @@ export default function BookingSummary({ step = 1 }) {
         <div className="border-t border-slate-700 pt-4 space-y-2 text-sm">
           <div className="flex justify-between text-slate-400">
             <span>Tarifa base</span>
-            <span>${quotation.base_rate_usd}/noche</span>
+            <span>{formatPrice(quotation.base_rate_usd)}/noche</span>
           </div>
           <div className={`flex justify-between ${SEASON_COLORS[quotation.season_code] || 'text-slate-400'}`}>
             <span>Temporada {quotation.season_name}</span>
@@ -73,23 +85,23 @@ export default function BookingSummary({ step = 1 }) {
             <span>×{quotation.view_multiplier}</span>
           </div>
           <div className="flex justify-between text-white font-bold border-t border-slate-700 pt-2">
-            <span>${quotation.price_per_night_usd}/noche</span>
+            <span>{formatPrice(quotation.price_per_night_usd)}/noche</span>
             <span>{nights} noches</span>
           </div>
           <div className="flex justify-between text-xl font-black text-white pt-1">
             <span>TOTAL</span>
-            <span>${quotation.total_usd} USD</span>
+            <span>{formatPrice(quotation.total_usd)}</span>
           </div>
           {/* Depósito */}
-          {dep && (
+          {depVal > 0 && (
             <div className="bg-blue-900/40 border border-blue-700/50 rounded-2xl p-3 space-y-1 mt-2">
               <div className="flex justify-between text-blue-300 text-xs font-bold">
                 <span>Depósito hoy (30%)</span>
-                <span>${dep}</span>
+                <span>{formatPrice(depVal)}</span>
               </div>
               <div className="flex justify-between text-slate-400 text-xs">
                 <span>Saldo en destino (70%)</span>
-                <span>${sal}</span>
+                <span>{formatPrice(salVal)}</span>
               </div>
             </div>
           )}

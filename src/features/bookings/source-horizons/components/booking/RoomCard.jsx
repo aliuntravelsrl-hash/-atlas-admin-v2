@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Users, Baby, Maximize2, Wifi, Wind, Eye, Waves, Home } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { useBooking } from '../../context/BookingContext'
 
 const VIEW_CONFIG = {
   GARDEN: { label: 'Vista Jardín',   color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',   icon: '🌿', mult: '×1.0' },
@@ -11,6 +12,19 @@ const VIEW_CONFIG = {
 }
 
 export default function RoomCard({ room, quotation, isLoading, isSelected, onSelect }) {
+  const { state } = useBooking()
+  const isDop = state.nationality_code === 'DO'
+  const exchangeRate = state.exchangeRate || 58.50
+
+  const formatPrice = (usdAmount) => {
+    const num = parseFloat(usdAmount) || 0
+    if (isDop) {
+      const dopAmount = Math.round(num * exchangeRate)
+      return `RD$ ${dopAmount.toLocaleString('es-DO')}`
+    }
+    return `$${num.toFixed(2)} USD`
+  }
+
   const [imgErr, setImgErr] = useState(false)
   const view = VIEW_CONFIG[room.view_category] || VIEW_CONFIG.GARDEN
 
@@ -106,16 +120,16 @@ export default function RoomCard({ room, quotation, isLoading, isSelected, onSel
                   {quotation.price_is_estimate ? '~ Estimado' : 'Precio confirmado'}
                 </span>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-black text-slate-900">${quotation.price_per_night_usd}</span>
+                  <span className="text-4xl font-black text-slate-900">{formatPrice(quotation.price_per_night_usd)}</span>
                   <span className="text-slate-400 text-sm">/noche</span>
                 </div>
-                <p className="text-xs text-slate-400 mt-0.5">Total: ${quotation.total_usd} USD</p>
+                <p className="text-xs text-slate-400 mt-0.5">Total: {formatPrice(quotation.total_usd)}</p>
               </div>
             ) : (
               <div>
                 <span className="text-xs text-slate-400 uppercase font-black block">Desde</span>
                 <span className="text-4xl font-black text-slate-900">
-                  ${room.base_price || '—'}
+                  {room.base_price ? formatPrice(room.base_price) : '—'}
                 </span>
               </div>
             )}

@@ -366,11 +366,11 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
       const { error: errLead } = await supabaseAdmin.from('crm_leads').insert({
         id: targetLeadId,
         full_name: form.lead_guest_name,
-        phone: form.lead_phone || null,
+        phone: form.lead_phone || 'manual',
         email: form.lead_email || null,
         source: 'manual',
         stage: 'confirmada',
-        hotel_interest: hotel?.name || null,
+        hotel_interest: hotel?.slug || null,
         message: 'Creado automáticamente al registrar reserva manual.' + (form.special_requests ? `\n🛎️ Peticiones especiales: ${form.special_requests}` : '')
       })
       if (errLead) {
@@ -384,7 +384,7 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
         .from('crm_leads')
         .update({
           stage: 'confirmada',
-          hotel_interest: hotel?.name || null,
+          hotel_interest: hotel?.slug || null,
           message: form.special_requests ? `🛎️ Peticiones especiales: ${form.special_requests}` : 'Actualizado automáticamente al registrar reserva manual.',
           updated_at: new Date().toISOString()
         })
@@ -692,7 +692,7 @@ function TabListado({ bookings, hotels, onConfirm, onCancel, onPago, onRecibo })
               <div className="flex flex-wrap gap-4 text-xs text-gray-400 mb-3">
                 <span>{b.check_in} → {b.check_out}</span>
                 <span>{b.nights || 0} noches · {b.adults || 0}A {b.children || 0}N</span>
-                <span className="text-white font-medium">${fmt(b.total_amount)}</span>
+                <span className="text-white font-medium">{fmtMoney(b.total_amount, b.nationality, EXCHANGE_RATE)}</span>
               </div>
 
               <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-800">
@@ -735,18 +735,16 @@ function TabPago({ bookings, onRegistered, onError }) {
   const isDOP    = cur === 'DOP'
 
   // Leer el total en la moneda correcta de la reserva
-  // Si currency='DOP' → total_amount ya está en DOP, no convertir
-  // Si currency='USD' → total_amount en USD, convertir para mostrar en DOP
-  const totalUSD = isDOP
-    ? parseFloat((parseFloat(booking?.total_amount || 0) / exchangeRate).toFixed(2))
-    : parseFloat(booking?.total_amount || 0)
+  const rate = booking?.exchange_rate || exchangeRate || 60;
+  const totalUSD = parseFloat(booking?.total_amount || 0);
+  const totalDOP = parseFloat(booking?.total_amount_dop) || Math.round(totalUSD * rate);
 
   // Recalcular el pagado acumulado en USD y DOP respetando la moneda de cada abono
   const paidUSD = payments.reduce((s, p) => {
     const amt = parseFloat(p.amount || 0);
     const pCur = p.currency || 'USD';
     if (pCur === 'DOP') {
-      return s + parseFloat((amt / exchangeRate).toFixed(2));
+      return s + parseFloat((amt / rate).toFixed(2));
     }
     return s + amt;
   }, 0);
@@ -757,14 +755,14 @@ function TabPago({ bookings, onRegistered, onError }) {
     if (pCur === 'DOP') {
       return s + amt;
     }
-    return s + Math.round(amt * exchangeRate);
+    return s + Math.round(amt * rate);
   }, 0);
 
   // Para display: si reserva es DOP mostramos en DOP; si USD mostramos en USD
-  const total   = isDOP ? parseFloat(booking?.total_amount || 0) : totalUSD
-  const paid    = isDOP ? paidDOP : paidUSD
-  const balance = Math.max(0, total - paid)
-  const pct     = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0
+  const total   = isDOP ? totalDOP : totalUSD;
+  const paid    = isDOP ? paidDOP : paidUSD;
+  const balance = Math.max(0, total - paid);
+  const pct     = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
 
   // Para el insert en atlas_payments siempre necesitamos USD
   const paidUSDAccum = paidUSD
@@ -793,21 +791,24 @@ function TabPago({ bookings, onRegistered, onError }) {
     // ── CONVERSIÓN ───────────────────────────────────────────
     // El usuario ingresa en la moneda de la reserva (DOP o USD)
     // La DB guarda en USD (unidad canónica)
-    const amountUSD = isDOP ? dopToUsd(rawAmount) : rawAmount
-    const amountDOP = isDOP ? Math.round(rawAmount) : Math.round(rawAmount * exchangeRate)
+    const rate = booking?.exchange_rate || exchangeRate || 60;
+    const amountUSD = isDOP ? parseFloat((rawAmount / rate).toFixed(2)) : rawAmount;
+    const amountDOP = isDOP ? Math.round(rawAmount) : Math.round(rawAmount * rate);
 
-    setLoading(true)
+    setLoading(true);
+    const newPaidUSD = parseFloat((paidUSD + amountUSD).toFixed(2));
+    const newPaidDOP = paidDOP + amountDOP;
     const isPaidComplete = isDOP
-      ? (paidDOP + amountDOP) >= total
-      : (paidUSD + amountUSD) >= total
-    const newStatus = isPaidComplete ? 'paid' : 'partial'
+      ? newPaidDOP >= total
+      : newPaidUSD >= total;
+    const newStatus = isPaidComplete ? 'paid' : 'partial';
 
     const { error: e1 } = await supabaseAdmin.from('atlas_payments').insert({
       booking_id:   bookingId,
-      amount:       amountUSD,              // siempre en USD
-      currency:     'USD',
+      amount:       isDOP ? amountDOP : amountUSD,
+      currency:     isDOP ? 'DOP' : 'USD',
       method:       form.method,
-      payment_type: 'deposito',             // ← FIX: constraint acepta 'deposito' no 'deposit'
+      payment_type: 'deposito',
       reference:    form.reference || null,
       payer_name:   form.payer_name || null,
       status:       'approved',
@@ -818,23 +819,21 @@ function TabPago({ bookings, onRegistered, onError }) {
         registered_by: 'admin_panel',
         original_currency: cur,
         original_amount:   rawAmount,
-        exchange_rate:     exchangeRate,
+        exchange_rate:     rate,
         amount_dop:        amountDOP,
       },
-    })
+    });
 
-    if (e1) { setLoading(false); onError('Error: ' + e1.message); return }
+    if (e1) { setLoading(false); onError('Error: ' + e1.message); return; }
 
-    // Actualizar deposit_amount_dop en bookings también
-    const newDepositDOP = (parseFloat(booking?.deposit_amount_dop || 0)) + amountDOP
     await supabaseAdmin
       .from('bookings')
       .update({
-        payment_status:    newStatus,
-        deposit_amount:    parseFloat((paid + amountUSD).toFixed(2)),
-        deposit_amount_dop: newDepositDOP,
+        payment_status:     newStatus,
+        deposit_amount:     newPaidUSD,
+        deposit_amount_dop: newPaidDOP,
       })
-      .eq('id', bookingId)
+      .eq('id', bookingId);
 
     // ATL-013 / OPS-265: Actualizar etapa del Lead reactivamente
     if (booking?.lead_id) {
@@ -847,9 +846,9 @@ function TabPago({ bookings, onRegistered, onError }) {
 
     setLoading(false)
     setPayments(prev => [...prev, {
-      amount: amountUSD, method: form.method,
-      created_at: new Date().toISOString(), status: 'approved', currency: 'USD'
-    }])
+      amount: isDOP ? amountDOP : amountUSD, method: form.method,
+      created_at: new Date().toISOString(), status: 'approved', currency: isDOP ? 'DOP' : 'USD'
+    }]);
     setForm(f => ({ ...f, amount: '', reference: '' }))
     onRegistered()
   }
@@ -861,7 +860,7 @@ function TabPago({ bookings, onRegistered, onError }) {
           <option value="">Seleccionar reserva...</option>
           {bookings.filter(b => b.status !== 'cancelled').map(b => (
             <option key={b.id} value={b.id}>
-              {b.booking_reference} · {b.lead_guest_name} · ${fmt(b.total_amount)}
+              {b.booking_reference} · {b.lead_guest_name} · {fmtMoney(b.total_amount, b.nationality, EXCHANGE_RATE)}
             </option>
           ))}
         </select>
@@ -1355,11 +1354,11 @@ function TabExcursion({ crmLeads = [], onRefreshLeads, onCreated, onError }) {
       const { error: errLead } = await supabaseAdmin.from('crm_leads').insert({
         id: targetLeadId,
         full_name: form.lead_guest_name,
-        phone: form.lead_phone || null,
+        phone: form.lead_phone || 'manual',
         email: form.lead_email || null,
         source: 'manual',
         stage: 'confirmada',
-        hotel_interest: form.excursion_name || null,
+        hotel_interest: form.excursion_slug || null,
         message: 'Creado automáticamente al registrar excursión manual.' + (form.special_requests ? `\n🛎️ Peticiones especiales: ${form.special_requests}` : '')
       })
       if (errLead) {
@@ -1372,7 +1371,7 @@ function TabExcursion({ crmLeads = [], onRefreshLeads, onCreated, onError }) {
         .from('crm_leads')
         .update({
           stage: 'confirmada',
-          hotel_interest: form.excursion_name || null,
+          hotel_interest: form.excursion_slug || null,
           message: form.special_requests ? `🛎️ Peticiones especiales: ${form.special_requests}` : 'Actualizado automáticamente al registrar excursión manual.',
           updated_at: new Date().toISOString()
         })

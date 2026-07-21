@@ -114,14 +114,14 @@ export default function PaymentGatewayPage() {
   }, [bookingRef]);
 
   // ── Cálculos financieros ───────────────────────────────────────
-  const cur      = booking?.currency || 'USD';
-  const isDOP    = cur === 'DOP';
+  const isDOP    = booking?.nationality === 'DO' || booking?.currency === 'DOP';
+  const cur      = isDOP ? 'DOP' : 'USD';
   const total    = parseFloat(booking?.total_amount || 0);
   const rate     = exchangeRate || 60;
 
   const paidUSD  = payments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
   const paidDisplay  = isDOP ? Math.round(paidUSD * rate) : paidUSD;
-  const totalDisplay = isDOP ? Math.round(total) : parseFloat(booking?.total_amount || 0);
+  const totalDisplay = isDOP ? Math.round(total * rate) : total;
   const balance      = Math.max(0, totalDisplay - paidDisplay);
   const pct          = totalDisplay > 0 ? Math.min(100, Math.round((paidDisplay / totalDisplay) * 100)) : 0;
   const isPaid       = pct >= 100;
@@ -137,7 +137,7 @@ export default function PaymentGatewayPage() {
     setGenerandoDoc(true);
     setDocOk(false);
     try {
-      const isDOP  = booking.currency === 'DOP';
+      const isDOP  = booking.nationality === 'DO' || booking.currency === 'DOP';
       const total  = parseFloat(booking.total_amount || 0);
       const slug   = booking.hotel_code || booking.hotels_master?.slug || '';
       const nights = booking.nights || Math.round((new Date(booking.check_out) - new Date(booking.check_in)) / 86400000);

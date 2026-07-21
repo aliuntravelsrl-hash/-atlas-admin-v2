@@ -539,21 +539,34 @@ const AdminBookingsPanel = () => {
 
     const cur       = selectedBooking.currency || 'USD';
     const isDOP     = cur === 'DOP';
-    const rate      = 60; // TODO: conectar a useExchangeRate cuando se pueda pasar el hook aquí
+    const rate      = selectedBooking.exchange_rate || 60;
     const amountUSD = isDOP ? parseFloat((rawAmount / rate).toFixed(2)) : rawAmount;
     const amountDOP = isDOP ? Math.round(rawAmount) : Math.round(rawAmount * rate);
 
-    const paidUSD     = abonoPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
-    const totalUSD    = isDOP
-      ? parseFloat((parseFloat(selectedBooking.total_amount || 0) / rate).toFixed(2))
+    const paidDOP = abonoPayments.reduce((s, p) => {
+      const amt = parseFloat(p.amount || 0);
+      return s + (p.currency === 'DOP' ? amt : Math.round(amt * rate));
+    }, 0);
+
+    const paidUSD = abonoPayments.reduce((s, p) => {
+      const amt = parseFloat(p.amount || 0);
+      return s + (p.currency === 'DOP' ? parseFloat((amt / rate).toFixed(2)) : amt);
+    }, 0);
+
+    const totalUSD = isDOP
+      ? parseFloat((parseFloat(selectedBooking.total_amount_dop || 0) / rate).toFixed(2))
       : parseFloat(selectedBooking.total_amount || 0);
-    const newPaidUSD  = paidUSD + amountUSD;
-    const newStatus   = newPaidUSD >= totalUSD ? 'paid' : 'partial';
+
+    const newPaidUSD  = parseFloat((paidUSD + amountUSD).toFixed(2));
+    const newPaidDOP  = paidDOP + amountDOP;
+    const newStatus   = isDOP
+      ? (newPaidDOP >= parseFloat(selectedBooking.total_amount_dop || 0) ? 'paid' : 'partial')
+      : (newPaidUSD >= totalUSD ? 'paid' : 'partial');
 
     const { error: e1 } = await supabaseAdmin.from('atlas_payments').insert({
       booking_id:   selectedBooking.id,
-      amount:       amountUSD,
-      currency:     'USD',
+      amount:       isDOP ? amountDOP : amountUSD,
+      currency:     isDOP ? 'DOP' : 'USD',
       method:       abono.method,
       payment_type: 'deposito',
       reference:    abono.reference || null,
@@ -566,15 +579,14 @@ const AdminBookingsPanel = () => {
 
     if (e1) { setAbonoLoading(false); setAbonoError('Error: ' + e1.message); return; }
 
-    const newDepositDOP = (parseFloat(selectedBooking.deposit_amount_dop || 0)) + amountDOP;
     await supabaseAdmin.from('bookings').update({
       payment_status:     newStatus,
-      deposit_amount:     parseFloat((paidUSD + amountUSD).toFixed(2)),
-      deposit_amount_dop: newDepositDOP,
+      deposit_amount:     newPaidUSD,
+      deposit_amount_dop: newPaidDOP,
       updated_at:         new Date().toISOString(),
     }).eq('id', selectedBooking.id);
 
-    setAbonoPayments(prev => [...prev, { amount: amountUSD, method: abono.method, created_at: new Date().toISOString(), status: 'approved', currency: 'USD' }]);
+    setAbonoPayments(prev => [...prev, { amount: isDOP ? amountDOP : amountUSD, method: abono.method, created_at: new Date().toISOString(), status: 'approved', currency: isDOP ? 'DOP' : 'USD' }]);
     setAbono(a => ({ ...a, amount: '', reference: '' }));
     setAbonoOk(true);
     setAbonoLoading(false);
@@ -1308,7 +1320,9 @@ const AdminBookingsPanel = () => {
                             <div className="flex justify-between items-center pt-1">
                               <span className="font-bold text-slate-500 text-sm">IMPORTE:</span>
                               <span className="font-extrabold text-xl text-[#C19A6B]">
-                                ${Number(booking.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} {booking.currency || 'USD'}
+                                {booking.currency === 'DOP'
+                                  ? `RD$ ${Math.round(booking.total_amount_dop || 0).toLocaleString('es-DO')} DOP`
+                                  : `$${Number(booking.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD`}
                               </span>
                             </div>
 
@@ -1644,7 +1658,9 @@ const AdminBookingsPanel = () => {
                   <div className="col-span-2 border-t pt-2 space-y-1">
                     <span className="text-xs text-slate-400 font-bold block uppercase tracking-wider">Monto Total de Venta</span>
                     <span className="font-extrabold text-[#C19A6B] text-xl block">
-                      ${Number(selectedBooking.total_amount || 0).toFixed(2)} {selectedBooking.currency || 'USD'}
+                      {selectedBooking.currency === 'DOP'
+                        ? `RD$ ${Math.round(selectedBooking.total_amount_dop || 0).toLocaleString('es-DO')} DOP`
+                        : `$${Number(selectedBooking.total_amount || 0).toFixed(2)} USD`}
                     </span>
                   </div>
                 </div>
@@ -2055,9 +2071,9 @@ const AdminBookingsPanel = () => {
                         <div key={i} className="flex justify-between items-center text-xs py-1.5 border-b border-slate-100 last:border-0">
                           <span className="text-slate-500">{p.method || 'transferencia'}</span>
                           <span className="font-bold text-emerald-600">
-                            {selectedBooking?.currency === 'DOP'
-                              ? `RD$ ${Math.round(parseFloat(p.amount) * 60).toLocaleString('es-DO')}`
-                              : `$${parseFloat(p.amount).toFixed(2)} USD`}
+                            {p.currency === 'DOP'
+                              ? `RD$ ${Math.round(parseFloat(p.amount || 0)).toLocaleString('es-DO')}`
+                              : `$${parseFloat(p.amount || 0).toFixed(2)} USD`}
                           </span>
                         </div>
                       ))}
