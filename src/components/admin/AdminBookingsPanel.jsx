@@ -73,6 +73,7 @@ const AdminBookingsPanel = () => {
   const [releasingVoucher, setReleasingVoucher] = useState(false);
   const [sendingRaceCondition, setSendingRaceCondition] = useState(false);
   const [generandoDoc, setGenerandoDoc] = useState(false);
+  const [generandoVoucherId, setGenerandoVoucherId] = useState(null);
 
   // ── Generar documento oficial ─────────────────────────────────
   const handleGenerarDocumento = async (booking, paymentsData) => {
@@ -139,6 +140,109 @@ const AdminBookingsPanel = () => {
       toast({ title: 'Error', description: e.message, variant: 'destructive' })
     } finally {
       setGenerandoDoc(false)
+    }
+  }
+
+  // ── Previsualizar u Obtener Voucher desde Gotenberg ─────────────────────
+  const handleVerVoucher = async (booking) => {
+    if (booking.voucher_pdf_url) {
+      window.open(booking.voucher_pdf_url, '_blank');
+      return;
+    }
+
+    // Si es nulo o vacío en DB, generamos la preview en tiempo real vía Gotenberg
+    setGenerandoVoucherId(booking.id);
+    try {
+      // 1. Obtener pagos reales de la reserva para el cálculo del saldo
+      const { data: pagos } = await supabase
+        .from('atlas_payments')
+        .select('amount')
+        .eq('booking_id', booking.id)
+        .in('status', ['approved', 'confirmed']);
+      
+      const total = parseFloat(booking.total_amount || 0);
+      const paid = (pagos || []).reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+      const balance = Math.max(0, total - paid);
+      const isExc = booking.booking_type === 'excursion';
+      const sr = booking.special_requests || {};
+      const nat = booking.nationality || 'DO';
+
+      let wfUrl, payload;
+      if (isExc) {
+        wfUrl = WF_EXCURSION_DOC;
+        payload = {
+          booking_ref:      booking.booking_reference,
+          excursion_slug:   booking.hotel_code || sr.excursion_slug || '',
+          plan_id:          sr.plan_id || '',
+          tipo_documento:   'VOUCHER',
+          cliente_nombre:   booking.lead_guest_name,
+          cliente_telefono: booking.lead_phone || '',
+          fecha:            booking.check_in,
+          pax_adultos:      booking.adults || 2,
+          pax_ninos:        booking.children || 0,
+          nationality:      nat,
+          total_dop:        Math.round(total * EXCHANGE_RATE),
+          deposito_dop:     Math.round(paid * EXCHANGE_RATE),
+          saldo_dop:        Math.round(balance * EXCHANGE_RATE),
+        };
+      } else {
+        wfUrl = WF_VOUCHER;
+        payload = {
+          booking_ref:      booking.booking_reference,
+          id_reserva:       booking.booking_reference,
+          cotizacion_id:    booking.booking_reference,
+          hotel_slug:       booking.hotels_master?.slug || booking.hotel_code || '',
+          hotel_name:       booking.hotels_master?.name || '',
+          cliente_nombre:   booking.lead_guest_name,
+          cliente_telefono: booking.lead_phone || '',
+          cliente_email:    booking.lead_email || '',
+          check_in:         booking.check_in,
+          check_out:        booking.check_out,
+          habitacion:       booking.room_name || 'Estándar',
+          tipo_hab:         booking.room_name || 'Estándar',
+          regimen:          'Todo Incluido',
+          pax_adultos:      booking.adults || 2,
+          pax_ninos:        booking.children || 0,
+          tipo_documento:   'VOUCHER',
+          precio_total_dop: Math.round(total * EXCHANGE_RATE),
+          deposito_dop:     Math.round(paid * EXCHANGE_RATE),
+          saldo_dop:        Math.round(balance * EXCHANGE_RATE),
+          provider_locator: booking.hotel_confirmation_no || booking.booking_reference,
+        };
+      }
+
+      const res = await fetch(wfUrl, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify(payload) 
+      });
+      const data = await res.json();
+      
+      const pdfUrl = data.pdf_url || data.url;
+      if (pdfUrl) {
+        window.open(pdfUrl, '_blank');
+        toast({
+          title: "Voucher de Gotenberg Generado ✅",
+          description: "Abriendo previsualización del documento generado.",
+        });
+        
+        // Opcional: Actualizar en Supabase para que la próxima vez sea instantáneo
+        await supabase
+          .from('bookings')
+          .update({ voucher_pdf_url: pdfUrl })
+          .eq('id', booking.id);
+      } else {
+        throw new Error("El servicio de n8n no retornó la URL del documento.");
+      }
+    } catch (e) {
+      console.error("Error al previsualizar voucher:", e);
+      toast({
+        title: "Error de Gotenberg",
+        description: e.message || "No se pudo conectar con el servicio de generación de vouchers.",
+        variant: "destructive"
+      });
+    } finally {
+      setGenerandoVoucherId(null);
     }
   }
 
@@ -1237,9 +1341,17 @@ const AdminBookingsPanel = () => {
                             <Button
                               size="sm"
                               className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1"
-                              onClick={(e) => { e.stopPropagation(); window.open(booking.voucher_pdf_url, '_blank'); }}
+                              onClick={(e) => { e.stopPropagation(); handleVerVoucher(booking); }}
+                              disabled={generandoVoucherId === booking.id}
                             >
-                              📄 Ver Voucher
+                              {generandoVoucherId === booking.id ? (
+                                <>
+                                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                  Generando...
+                                </>
+                              ) : (
+                                "📄 Ver Voucher"
+                              )}
                             </Button>
                             )}
                             {booking.fulfillment_status === 'voucher_issued' && (
