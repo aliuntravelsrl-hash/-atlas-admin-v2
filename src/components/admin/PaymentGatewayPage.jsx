@@ -210,12 +210,22 @@ export default function PaymentGatewayPage() {
           paid:                  paidDisplay,
           currency:              isDOP ? 'DOP' : 'USD',
           status:                booking.status || 'confirmed',
-          payments:              payments.map(p => ({
-            method:     p.method || 'transferencia',
-            amount:     isDOP ? Math.round(parseFloat(p.amount) * rate) : parseFloat(p.amount),
-            currency:   isDOP ? 'DOP' : 'USD',
-            created_at: p.created_at,
-          })),
+          payments:              payments.map(p => {
+            const pCur = p.currency || 'USD';
+            const amt = parseFloat(p.amount || 0);
+            let amtDisplay;
+            if (pCur === 'DOP') {
+              amtDisplay = isDOP ? amt : parseFloat((amt / rate).toFixed(2));
+            } else {
+              amtDisplay = isDOP ? Math.round(amt * rate) : amt;
+            }
+            return {
+              method:     p.method || 'transferencia',
+              amount:     amtDisplay,
+              currency:   isDOP ? 'DOP' : 'USD',
+              created_at: p.created_at,
+            };
+          }),
         };
       } else {
         // ── COTIZACIÓN — sin abono ─────────────────────────────────
