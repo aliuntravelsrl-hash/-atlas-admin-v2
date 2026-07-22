@@ -30,6 +30,7 @@ import AdminBookingsPanel from './admin/AdminBookingsPanel'
 import AdminExcursionBookingsPanel from './admin/AdminExcursionBookingsPanel'
 import AdminSalesPage from '../pages/admin/AdminSalesPage'
 import AdminExcursionsPage from '../pages/admin/AdminExcursionsPage'
+import HotelKnowledgePanel from '../pages/admin/HotelKnowledgePanel'
 
 import { AdminAuthProvider } from '@/contexts/AdminAuthContext'
 import React from 'react'
@@ -128,6 +129,7 @@ export function AppShell() {
               <Route path="admin/bookings" element={<AdminBookingsPanel />} />
               <Route path="admin/payments/:bookingRef" element={<PaymentGatewayPage />} />
               <Route path="admin/excursion-bookings" element={<AdminExcursionBookingsPanel />} />
+              <Route path="admin/knowledge" element={<HotelKnowledgePanel />} />
 
 
             {/* Rutas de Marketing */}
