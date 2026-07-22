@@ -126,16 +126,16 @@ export const HorizonsLayout = () => {
       current: location.pathname.startsWith('/marketing/offers')
     },
     {
-      name: 'Knowledge Base 🧠',
-      icon: '🧠',
-      href: '/admin/knowledge',
-      current: location.pathname === '/admin/knowledge'
-    },
-    {
       name: 'Acciones Rápidas ⚡',
       icon: '⚡',
       href: '/',
       current: location.pathname === '/'
+    },
+    {
+      name: 'Knowledge Base 🧠',
+      icon: '🧠',
+      href: '/admin/knowledge',
+      current: location.pathname === '/admin/knowledge'
     }
   ];
 
