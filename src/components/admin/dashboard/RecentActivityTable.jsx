@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { useToast } from '@/components/ui/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Eye, MessageSquare, Download } from 'lucide-react';
@@ -8,8 +9,10 @@ import { generateQuotePDF } from '@/lib/QuotationPDFGenerator';
 import ExpiryBadge from './ExpiryBadge';
 
 const RecentActivityTable = ({ data, onViewDetails }) => {
+  const { toast } = useToast();
+  const [loadingQuoteId, setLoadingQuoteId] = useState(null);
 
-  const handleDownload = (e, quote) => {
+  const handleDownload = async (e, quote) => {
     e.stopPropagation(); 
     const pdfData = {
         id: quote.id,
@@ -23,8 +26,25 @@ const RecentActivityTable = ({ data, onViewDetails }) => {
         adults: quote.adults,
         children: quote.children
     };
-    const doc = generateQuotePDF(pdfData);
-    doc.save(`Cotizacion_${quote.guest_name}.pdf`);
+    
+    setLoadingQuoteId(quote.id);
+    try {
+      await generateQuotePDF(pdfData);
+      toast({
+        title: "Cotización Generada ✅",
+        description: "El PDF ha sido abierto en una pestaña nueva.",
+        className: 'bg-emerald-600 text-white border-none'
+      });
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Error al generar",
+        description: "No se pudo generar el PDF con Gotenberg.",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingQuoteId(null);
+    }
   };
 
   const handleWhatsApp = (e, quote) => {
@@ -86,8 +106,14 @@ const RecentActivityTable = ({ data, onViewDetails }) => {
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-600" onClick={(e) => { e.stopPropagation(); onViewDetails(quote); }}>
                       <Eye className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => handleDownload(e, quote)}>
-                      <Download className="h-4 w-4" />
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8" 
+                      onClick={(e) => handleDownload(e, quote)}
+                      disabled={loadingQuoteId === quote.id}
+                    >
+                      <Download className={`h-4 w-4 ${loadingQuoteId === quote.id ? 'animate-bounce text-amber-500' : ''}`} />
                     </Button>
                     {quote.guest_phone && (
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-green-600" onClick={(e) => handleWhatsApp(e, quote)}>

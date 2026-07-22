@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { useToast } from '@/components/ui/use-toast';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
@@ -14,7 +15,10 @@ import ExpiryBadge from './ExpiryBadge';
 const QuotationDetailPanel = ({ quotation, open, onOpenChange, onStatusUpdate }) => {
   if (!quotation) return null;
 
-  const handleDownloadPDF = () => {
+  const { toast } = useToast();
+  const [loadingPDF, setLoadingPDF] = useState(false);
+
+  const handleDownloadPDF = async () => {
     const pdfData = {
         id: quotation.id,
         created_at: quotation.created_at,
@@ -27,8 +31,25 @@ const QuotationDetailPanel = ({ quotation, open, onOpenChange, onStatusUpdate })
         adults: quotation.adults,
         children: quotation.children
     };
-    const doc = generateQuotePDF(pdfData);
-    doc.save(`Cotizacion_${quotation.guest_name}.pdf`);
+    
+    setLoadingPDF(true);
+    try {
+      await generateQuotePDF(pdfData);
+      toast({
+        title: "Cotización Generada ✅",
+        description: "El PDF ha sido abierto en una pestaña nueva.",
+        className: 'bg-emerald-600 text-white border-none'
+      });
+    } catch (e) {
+      console.error(e);
+      toast({
+        title: "Error de Cotización",
+        description: "No se pudo generar el PDF con Gotenberg. Intenta nuevamente.",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingPDF(false);
+    }
   };
 
   return (
@@ -70,8 +91,15 @@ const QuotationDetailPanel = ({ quotation, open, onOpenChange, onStatusUpdate })
                             guestName={quotation.guest_name} 
                             hotelName={quotation.hotel?.name} 
                         />
-                        <Button variant="outline" size="sm" className="flex-1" onClick={handleDownloadPDF}>
-                            <Download className="w-4 h-4 mr-2" /> PDF
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="flex-1" 
+                            onClick={handleDownloadPDF}
+                            disabled={loadingPDF}
+                        >
+                            <Download className="w-4 h-4 mr-2" />
+                            {loadingPDF ? 'Generando...' : 'PDF'}
                         </Button>
                     </div>
                 </div>
