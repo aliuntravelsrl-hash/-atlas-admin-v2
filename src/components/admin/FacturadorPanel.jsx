@@ -195,6 +195,10 @@ export default function FacturadorPanel({ booking }) {
 
   // ── Generar factura INDIVIDUAL ────────────────────────────────────
   const generarIndividual = async () => {
+    if (!booking?.id) {
+      setError('No hay una reserva activa seleccionada.');
+      return;
+    }
     const isUSD = !indiv.precio_total_dop && !!indiv.precio_total_usd;
     if (!indiv.hotel || !indiv.check_in || !indiv.check_out) {
       setError('Completa hotel y fechas.');
@@ -209,45 +213,97 @@ export default function FacturadorPanel({ booking }) {
     setPdfUrl(null);
     try {
       const ref = indiv.factura_num || genRef('FAC');
-      const payload = {
-        cotizacion_id: ref,
-        hotel_slug: indiv.hotel_slug || indiv.hotel.toLowerCase().replace(/\s+/g, '-'),
-        hotel_name: indiv.hotel,
-        cliente_nombre: indiv.guest_lider,
+      
+      // 1. Guardar los cambios editados en el formulario en la tabla bookings
+      const updateData = {
         check_in: indiv.check_in,
         check_out: indiv.check_out,
-        pax_adultos: parseInt(indiv.pax_adultos) || 2,
-        pax_ninos: parseInt(indiv.pax_ninos) || 0,
-        habitaciones: parseInt(indiv.habitaciones) || 1,
-        plan_alimenticio: indiv.plan,
-        tipo_hab: indiv.tipo_hab,
-        precio_total_dop: parseFloat(indiv.precio_total_dop) || 0,
-        precio_total_usd: parseFloat(indiv.precio_total_usd) || 0,
-        moneda: isUSD ? 'USD' : 'DOP',
-        tipo_documento: indiv.tipo_doc || 'COTIZACION',
-        deposito_usd: parseFloat(indiv.deposito_usd) || 0,
-        deposito_dop: parseFloat(indiv.deposito_dop) || 0,
-        saldo_usd: isUSD ? (parseFloat(indiv.precio_total_usd) - (parseFloat(indiv.deposito_usd) || 0)) : 0,
-        saldo_dop: !isUSD ? (parseFloat(indiv.precio_total_dop) - (parseFloat(indiv.deposito_dop) || 0)) : 0
+        lead_guest_name: indiv.guest_lider,
+        room_name: indiv.tipo_hab,
+        meal_plan: indiv.plan,
+        adults: parseInt(indiv.pax_adultos) || 2,
+        children: parseInt(indiv.pax_ninos) || 0,
+        total_amount: isUSD ? parseFloat(indiv.precio_total_usd) : null,
+        total_amount_dop: !isUSD ? parseFloat(indiv.precio_total_dop) : null,
+        status: indiv.tipo_doc === 'CONFIRMACION' ? 'confirmed' : booking.status
       };
 
-      const res = await fetch(`${N8N_BASE}/webhook/aliun-cotizacion-individual`, {
+      const { error: bookingErr } = await supabase
+        .from('bookings')
+        .update(updateData)
+        .eq('id', booking.id);
+
+      if (bookingErr) throw bookingErr;
+
+      // 2. Buscar o crear/actualizar el pasajero líder en booking_passengers
+      let passengerId = null;
+      const { data: passengers } = await supabase
+        .from('booking_passengers')
+        .select('id')
+        .eq('booking_id', booking.id)
+        .eq('is_leader', true)
+        .limit(1);
+
+      if (passengers && passengers.length > 0) {
+        passengerId = passengers[0].id;
+        // Actualizamos los datos del pasajero líder
+        const { error: passErr } = await supabase
+          .from('booking_passengers')
+          .update({
+            full_name: indiv.guest_lider,
+            room_type: indiv.tipo_hab,
+            precio_individual: isUSD ? (parseFloat(indiv.precio_total_usd) || 0) : (parseFloat(indiv.precio_total_dop) || 0),
+            currency: isUSD ? 'USD' : 'DOP'
+          })
+          .eq('id', passengerId);
+        if (passErr) throw passErr;
+      } else {
+        // Creamos el líder
+        const { data: newPassenger, error: passErr } = await supabase
+          .from('booking_passengers')
+          .insert([{
+            booking_id: booking.id,
+            passenger_num: 1,
+            full_name: indiv.guest_lider,
+            room_type: indiv.tipo_hab,
+            room_number: '1',
+            is_leader: true,
+            precio_individual: isUSD ? (parseFloat(indiv.precio_total_usd) || 0) : (parseFloat(indiv.precio_total_dop) || 0),
+            currency: isUSD ? 'USD' : 'DOP',
+            passport_or_id: ''
+          }])
+          .select('id')
+          .single();
+        if (passErr) throw passErr;
+        passengerId = newPassenger.id;
+      }
+
+      // 3. Llamar al webhook de factura unificado aliun-factura
+      const payload = {
+        booking_id: booking.id,
+        tipo: 'individual',
+        passenger_id: passengerId
+      };
+
+      const res = await fetch(`${N8N_BASE}/webhook/aliun-factura`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
+
+      if (!res.ok) throw new Error(`Servidor de facturas retornó error ${res.status}`);
+
       const data = await res.json();
-      // WF responde inmediatamente (async) — PDF llega por Telegram en ~15s
-      if (data.status === 'procesando' || !data.pdf_url) {
-        setPdfUrl('telegram');
-        await logFactura('individual', ref, 'telegram-async', indiv.hotel);
-      } else {
-        const url = data.pdf_url || data.url;
+      const url = data.pdf_url || data.url;
+
+      if (url) {
         setPdfUrl(url);
         await logFactura('individual', ref, url, indiv.hotel);
+      } else {
+        throw new Error(data.message || 'El servidor no retornó una URL de PDF válida.');
       }
     } catch (e) {
-      setError('Error generando factura: ' + e.message);
+      setError('Error generando factura individual: ' + e.message);
     } finally {
       setGenerando(false);
     }
@@ -301,6 +357,10 @@ export default function FacturadorPanel({ booking }) {
 
   // ── Generar factura GRUPAL ────────────────────────────────────────────
   const generarGrupal = async () => {
+    if (!booking?.id) {
+      setError('No hay una reserva activa seleccionada.');
+      return;
+    }
     if (!grupal.hotel || !grupal.check_in || !grupal.check_out) {
       setError('Completa hotel y fechas.');
       return;
@@ -314,43 +374,61 @@ export default function FacturadorPanel({ booking }) {
     setPdfUrl(null);
     try {
       const ref = grupal.factura_num || genRef('FAC-GROUP');
+
+      // 1. Guardar/Actualizar la lista de habitaciones/pasajeros en Supabase (booking_passengers)
+      // Primero limpiamos los registros anteriores de este booking para evitar duplicados
+      const { error: deleteErr } = await supabase
+        .from('booking_passengers')
+        .delete()
+        .eq('booking_id', booking.id);
+        
+      if (deleteErr) throw deleteErr;
+
+      // Luego insertamos la lista de la UI
+      const rowsToInsert = habitaciones.map((h, i) => ({
+        booking_id: booking.id,
+        passenger_num: i + 1,
+        full_name: h.huesped,
+        room_type: h.tipo,
+        room_number: String(i + 1),
+        is_leader: i === 0,
+        precio_individual: parseFloat(h.precio) || 0,
+        currency: 'DOP',
+        passport_or_id: ''
+      }));
+
+      const { error: insertErr } = await supabase
+        .from('booking_passengers')
+        .insert(rowsToInsert);
+
+      if (insertErr) throw insertErr;
+
+      // 2. Disparar el webhook unificado de factura aliun-factura
       const payload = {
-        factura_num: ref,
-        hotel: grupal.hotel,
-        check_in: grupal.check_in,
-        check_out: grupal.check_out,
-        noches: calcNoches(grupal.check_in, grupal.check_out),
-        plan: grupal.plan,
-        guest_lider: grupal.guest_lider,
-        validez: grupal.validez,
-        deposito_pct: grupal.deposito_pct,
-        habitaciones: habitaciones.map((h, i) => ({
-          num: i + 1,
-          huesped: h.huesped,
-          tipo: h.tipo,
-          pax: h.pax,
-          precio: parseFloat(h.precio) || 0
-        })),
-        condiciones: [
-          `${grupal.deposito_pct}% de depósito requerido para confirmar las reservas del grupo.`,
-          'Saldo restante debe liquidarse antes del check-in.',
-          `Precios en pesos dominicanos (DOP). Incluyen impuestos y plan ${grupal.plan}.`,
-          'Política de cancelación según contrato con el proveedor.'
-        ]
+        booking_id: booking.id,
+        tipo: 'grupal',
+        passenger_id: null
       };
 
-      const res = await fetch(`${N8N_BASE}/webhook/factura-grupal`, {
+      const res = await fetch(`${N8N_BASE}/webhook/aliun-factura`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
+
+      if (!res.ok) throw new Error(`Servidor de facturas retornó error ${res.status}`);
+
       const data = await res.json();
       const url = data.pdf_url || data.url;
-      if (!url) throw new Error('No se recibió URL del PDF');
-      setPdfUrl(url);
-      await logFactura('grupal', ref, url, grupal.hotel);
+
+      if (url) {
+        setPdfUrl(url);
+        await logFactura('grupal', ref, url, grupal.hotel);
+      } else {
+        throw new Error(data.message || 'El servidor no retornó una URL de PDF válida.');
+      }
     } catch (e) {
-      setError('Error generando factura: ' + e.message);
+      setError('Error generando factura grupal: ' + e.message);
     } finally {
       setGenerando(false);
     }
