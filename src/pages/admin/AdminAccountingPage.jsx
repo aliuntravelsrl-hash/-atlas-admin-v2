@@ -24,7 +24,7 @@ const supabase = createClient(SUPA_URL, SUPA_ANON);
 const supabaseAdmin = createClient(SUPA_URL, SUPA_SERVICE);
 
 const N8N_WEBHOOK_AI = 'https://n8n-n8n.xaruuo.easypanel.host/webhook/accounting-process';
-const N8N_VOUCHERS_MASIVOS = 'https://n8n-n8n.xaruuo.easypanel.host/webhook/vouchers-masivos';
+const N8N_VOUCHERS_MASIVOS = 'https://n8n-n8n.xaruuo.easypanel.host/webhook/vouchers-grupales';
 const N8N_FACTURA_GRUPAL = 'https://n8n-n8n.xaruuo.easypanel.host/webhook/aliun-factura';
 
 export default function AdminAccountingPage() {
