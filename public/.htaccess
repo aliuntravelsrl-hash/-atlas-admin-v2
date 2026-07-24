@@ -1,39 +1,26 @@
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
-
-  # Servir archivos y directorios existentes directamente (assets, fonts, etc.)
-  RewriteCond %{REQUEST_FILENAME} -f [OR]
-  RewriteCond %{REQUEST_FILENAME} -d
-  RewriteRule ^ - [L]
-
-  # SPA fallback: todo lo demás → index.html
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule ^ index.html [L]
 </IfModule>
 
-# MIME types explícitos — crítico para Vite bundles (module scripts)
-AddType application/javascript .js .mjs
-AddType text/css .css
-AddType image/svg+xml .svg
-AddType image/webp .webp
-AddType image/avif .avif
-AddType font/woff2 .woff2
-AddType font/woff .woff
+AddType text/javascript .js
+AddType application/javascript .mjs
 
 <IfModule mod_headers.c>
-  Header set X-Powered-By "Aliun Travel ATLAS"
-
-  # Sin cache en HTML y rutas SPA
-  <FilesMatch "\.(html)$">
-    Header set Cache-Control "max-age=0, no-cache, no-store, must-revalidate"
-    Header set Pragma "no-cache"
-    Header set Expires "Wed, 11 Jan 1984 05:00:00 GMT"
-  </FilesMatch>
-
-  # Cache agresiva en assets con hash (Vite genera hashes únicos por build)
-  <FilesMatch "\.(js|mjs|css|woff2|woff|webp|avif|png|jpg|jpeg|gif|ico|svg)$">
+  Header set X-Powered-By "Hostinger Horizons"
+  
+  # Por defecto desactivar cache para asegurar actualización instantánea del HTML y rutas del router
+  Header set Cache-Control "max-age=0, no-cache, no-store, must-revalidate"
+  Header set Pragma "no-cache"
+  Header set Expires "Wed, 11 Jan 1984 05:00:00 GMT"
+  
+  # Si es un asset estático (CSS/JS) con hash único de Vite, cachear fuertemente (1 semana)
+  <If "%{REQUEST_URI} =~ m#^/assets/.*$#">
     Header set Cache-Control "public, max-age=604800, immutable"
     Header unset Pragma
     Header unset Expires
-  </FilesMatch>
+  </If>
 </IfModule>
