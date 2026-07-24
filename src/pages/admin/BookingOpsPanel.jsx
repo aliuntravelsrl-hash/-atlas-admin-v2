@@ -360,9 +360,49 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
 
     let targetLeadId = form.lead_id || null
 
+    // ── Búsqueda en caliente de Lead existente por teléfono o email ──
+    if (!targetLeadId && (form.lead_phone || form.lead_email)) {
+      let matchedLead = null
+
+      if (form.lead_email) {
+        const { data: byEmail } = await supabaseAdmin
+          .from('crm_leads')
+          .select('id')
+          .eq('email', form.lead_email.trim())
+          .limit(1)
+        if (byEmail && byEmail.length > 0) {
+          matchedLead = byEmail[0]
+        }
+      }
+
+      if (!matchedLead && form.lead_phone) {
+        const cleanPhone = form.lead_phone.replace(/\D/g, '')
+        if (cleanPhone) {
+          // Buscamos leads recientes para hacer match flexible con el teléfono
+          const { data: byPhone } = await supabaseAdmin
+            .from('crm_leads')
+            .select('id, phone')
+            .order('created_at', { ascending: false })
+            .limit(100)
+          
+          if (byPhone) {
+            matchedLead = byPhone.find(l => {
+              const lp = (l.phone || '').replace(/\D/g, '')
+              return lp && (lp === cleanPhone || lp.endsWith(cleanPhone) || cleanPhone.endsWith(lp))
+            })
+          }
+        }
+      }
+
+      if (matchedLead) {
+        targetLeadId = matchedLead.id
+        console.log(`✅ Lead existente auto-asociado por coincidencia: ${targetLeadId}`)
+      }
+    }
+
     // ── Sincronización del CRM: Crear o Actualizar Lead ──────────────
-    if (!targetLeadId && form.crear_lead_nuevo) {
-      // Creación en frío: Insertar lead manual nuevo si está activo el checkbox
+    if (!targetLeadId) {
+      // Creación en frío: Insertar lead manual nuevo
       targetLeadId = crypto.randomUUID()
       const { error: errLead } = await supabaseAdmin.from('crm_leads').insert({
         id: targetLeadId,
@@ -370,7 +410,7 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
         phone: form.lead_phone || 'manual',
         email: form.lead_email || null,
         source: 'manual',
-        stage: 'confirmada',
+        stage: 'deposito_recibido',
         hotel_interest: hotel?.slug || null,
         message: 'Creado automáticamente al registrar reserva manual.' + (form.special_requests ? `\n🛎️ Peticiones especiales: ${form.special_requests}` : '')
       })
@@ -379,12 +419,12 @@ function TabNuevaReserva({ hotels, crmLeads = [], onRefreshLeads, onCreated, onE
         onError('Error al crear lead en CRM: ' + errLead.message)
         return
       }
-    } else if (targetLeadId) {
-      // Actualizar etapa de lead existente a confirmada
+    } else {
+      // Actualizar etapa de lead existente a confirmada (deposito_recibido)
       const { error: errLeadUpdate } = await supabaseAdmin
         .from('crm_leads')
         .update({
-          stage: 'confirmada',
+          stage: 'deposito_recibido',
           hotel_interest: hotel?.slug || null,
           message: form.special_requests ? `🛎️ Peticiones especiales: ${form.special_requests}` : 'Actualizado automáticamente al registrar reserva manual.',
           updated_at: new Date().toISOString()
@@ -1349,8 +1389,48 @@ function TabExcursion({ crmLeads = [], onRefreshLeads, onCreated, onError }) {
     const ref = genRef()
     let targetLeadId = form.lead_id || null
 
+    // ── Búsqueda en caliente de Lead existente por teléfono o email ──
+    if (!targetLeadId && (form.lead_phone || form.lead_email)) {
+      let matchedLead = null
+
+      if (form.lead_email) {
+        const { data: byEmail } = await supabaseAdmin
+          .from('crm_leads')
+          .select('id')
+          .eq('email', form.lead_email.trim())
+          .limit(1)
+        if (byEmail && byEmail.length > 0) {
+          matchedLead = byEmail[0]
+        }
+      }
+
+      if (!matchedLead && form.lead_phone) {
+        const cleanPhone = form.lead_phone.replace(/\D/g, '')
+        if (cleanPhone) {
+          // Buscamos leads recientes para hacer match flexible con el teléfono
+          const { data: byPhone } = await supabaseAdmin
+            .from('crm_leads')
+            .select('id, phone')
+            .order('created_at', { ascending: false })
+            .limit(100)
+          
+          if (byPhone) {
+            matchedLead = byPhone.find(l => {
+              const lp = (l.phone || '').replace(/\D/g, '')
+              return lp && (lp === cleanPhone || lp.endsWith(cleanPhone) || cleanPhone.endsWith(lp))
+            })
+          }
+        }
+      }
+
+      if (matchedLead) {
+        targetLeadId = matchedLead.id
+        console.log(`✅ Lead de excursión auto-asociado por coincidencia: ${targetLeadId}`)
+      }
+    }
+
     // ── Sincronización del CRM: Crear o Actualizar Lead ──────────────
-    if (!targetLeadId && form.crear_lead_nuevo) {
+    if (!targetLeadId) {
       targetLeadId = crypto.randomUUID()
       const { error: errLead } = await supabaseAdmin.from('crm_leads').insert({
         id: targetLeadId,
@@ -1358,7 +1438,7 @@ function TabExcursion({ crmLeads = [], onRefreshLeads, onCreated, onError }) {
         phone: form.lead_phone || 'manual',
         email: form.lead_email || null,
         source: 'manual',
-        stage: 'confirmada',
+        stage: 'deposito_recibido',
         hotel_interest: form.excursion_slug || null,
         message: 'Creado automáticamente al registrar excursión manual.' + (form.special_requests ? `\n🛎️ Peticiones especiales: ${form.special_requests}` : '')
       })
@@ -1367,11 +1447,11 @@ function TabExcursion({ crmLeads = [], onRefreshLeads, onCreated, onError }) {
         onError('Error al crear lead en CRM: ' + errLead.message)
         return
       }
-    } else if (targetLeadId) {
+    } else {
       const { error: errLeadUpdate } = await supabaseAdmin
         .from('crm_leads')
         .update({
-          stage: 'confirmada',
+          stage: 'deposito_recibido',
           hotel_interest: form.excursion_slug || null,
           message: form.special_requests ? `🛎️ Peticiones especiales: ${form.special_requests}` : 'Actualizado automáticamente al registrar excursión manual.',
           updated_at: new Date().toISOString()
