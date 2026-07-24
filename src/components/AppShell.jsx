@@ -31,6 +31,7 @@ import AdminExcursionBookingsPanel from './admin/AdminExcursionBookingsPanel'
 import AdminSalesPage from '../pages/admin/AdminSalesPage'
 import AdminExcursionsPage from '../pages/admin/AdminExcursionsPage'
 import HotelKnowledgePanel from '../pages/admin/HotelKnowledgePanel'
+import AdminAccountingPage from '../pages/admin/AdminAccountingPage'
 
 import { AdminAuthProvider } from '@/contexts/AdminAuthContext'
 import React from 'react'
@@ -145,12 +146,7 @@ export function AppShell() {
               </div>
             } />
             <Route path="sales/confirmaciones" element={<AdminBookingsPanel />} />
-            <Route path="financial/dashboard" element={
-              <div className="bg-white rounded-lg shadow p-6 border border-gray-100">
-                <h2 className="text-xl font-bold text-gray-800">Dashboard de Análisis Financiero</h2>
-                <p className="text-gray-500 mt-2">Módulo en desarrollo. Mostrará reportes de conciliación bancaria y ganancias netas.</p>
-              </div>
-            } />
+            <Route path="financial/dashboard" element={<AdminAccountingPage />} />
             <Route path="financial/reports" element={
               <div className="bg-white rounded-lg shadow p-6 border border-gray-100">
                 <h2 className="text-xl font-bold text-gray-800">Reportes Financieros Exportables</h2>
