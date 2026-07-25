@@ -5,8 +5,9 @@ import LeadDetail from './LeadDetail';
 const STAGES = [
   { id: 'nuevo', name: 'Nuevo', color: 'border-blue-500/30 text-blue-400 bg-blue-500/5', dot: 'bg-blue-500' },
   { id: 'contactado', name: 'Contactado', color: 'border-amber-500/30 text-amber-400 bg-amber-500/5', dot: 'bg-amber-500' },
-  { id: 'cotizado', name: 'Cotizado', color: 'border-violet-500/30 text-violet-400 bg-violet-500/5', dot: 'bg-violet-500' },
+  { id: 'cotizacion_enviada', name: 'Cotización Enviada', color: 'border-violet-500/30 text-violet-400 bg-violet-500/5', dot: 'bg-violet-500' },
   { id: 'negociando', name: 'Negociando', color: 'border-orange-500/30 text-orange-400 bg-orange-500/5', dot: 'bg-orange-500' },
+  { id: 'deposito_recibido', name: 'Depósito Recibido', color: 'border-pink-500/30 text-pink-400 bg-pink-500/5', dot: 'bg-pink-500' },
   { id: 'confirmada', name: 'Confirmada', color: 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5', dot: 'bg-emerald-500' },
   { id: 'perdido', name: 'Perdido', color: 'border-slate-700 text-slate-400 bg-slate-900/10', dot: 'bg-slate-500' },
 ];
@@ -98,6 +99,56 @@ export const PipelineKanban = () => {
     e.preventDefault();
     const leadId = e.dataTransfer.getData('text/plain') || draggedLeadId;
     if (!leadId) return;
+
+    // Guarda de seguridad financiera contable (Fase 4.0)
+    if (stageId === 'deposito_recibido') {
+      try {
+        setLoading(true);
+        // A. Buscar reserva asociada al lead
+        const { data: bookingData, error: errBk } = await supabase
+          .from('bookings')
+          .select('id, booking_reference')
+          .eq('lead_id', leadId)
+          .limit(1);
+
+        if (errBk) throw errBk;
+
+        if (!bookingData || bookingData.length === 0) {
+          alert('❌ Transición Bloqueada: El lead no posee ninguna reserva asociada en la base de datos de producción.');
+          setDragOverStage(null);
+          setDraggedLeadId(null);
+          fetchLeads();
+          return;
+        }
+
+        // B. Verificar existencia de abonos conciliados en ledger para esa reserva
+        const { data: ledgerData, error: errLedger } = await supabase
+          .from('payment_ledger')
+          .select('id, amount_applied_usd')
+          .eq('booking_id', bookingData[0].id)
+          .limit(1);
+
+        if (errLedger) throw errLedger;
+
+        if (!ledgerData || ledgerData.length === 0) {
+          alert(`❌ Transición Bloqueada: La reserva #${bookingData[0].booking_reference} no registra depósitos conciliados y aprobados en el ledger contable.`);
+          setDragOverStage(null);
+          setDraggedLeadId(null);
+          fetchLeads();
+          return;
+        }
+
+      } catch (err) {
+        console.error('Error al validar guarda financiera:', err.message);
+        alert('❌ Error de comunicación con la base de datos de Supabase.');
+        setDragOverStage(null);
+        setDraggedLeadId(null);
+        fetchLeads();
+        return;
+      } finally {
+        setLoading(false);
+      }
+    }
 
     // Actualizar UI localmente de forma optimista
     const updatedLeads = leads.map(l => {

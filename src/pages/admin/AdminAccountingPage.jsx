@@ -61,66 +61,71 @@ export default function AdminAccountingPage() {
   const [generatingDoc, setGeneratingDoc] = useState(false);
   const [docMsg, setDocMsg] = useState('');
 
+  // Estado para desglose y conciliacion de la RPC
+  const [paymentsBreakdown, setPaymentsBreakdown] = useState([]);
+  const [loadingBreakdown, setLoadingBreakdown] = useState(false);
+
+  // Estado para aplicacion de pagos interactivos
+  const [selectedPaymentId, setSelectedPaymentId] = useState('');
+  const [selectedBookingIdForApply, setSelectedBookingIdForApply] = useState('');
+  const [amountToApply, setAmountToApply] = useState('');
+  const [applyingPayment, setApplyingPayment] = useState(false);
+  const [applyMsg, setApplyMsg] = useState('');
+
   // Cargar datos al iniciar
   useEffect(() => {
     fetchMetrics();
     fetchLogs();
     fetchBookings();
+    fetchBreakdown();
     runConciliation();
   }, []);
+
+  const fetchBreakdown = async () => {
+    setLoadingBreakdown(true);
+    try {
+      const { data, error } = await supabase.rpc('get_payment_ledger_breakdown');
+      if (error) throw error;
+      setPaymentsBreakdown(data || []);
+    } catch (err) {
+      console.error("Error fetching breakdown:", err.message);
+    } finally {
+      setLoadingBreakdown(false);
+    }
+  };
 
   const fetchMetrics = async () => {
     setLoadingMetrics(true);
     try {
-      // 1. Obtener todas las reservas de la base de datos
+      // 1. Obtener todas las reservas con los campos normalizados en USD
       const { data: bookingsData, error: errBks } = await supabase
         .from('bookings')
-        .select('total_amount, total_amount_dop, currency, status');
+        .select('total_amount_usd, status');
       if (errBks) throw errBks;
 
-      // 2. Obtener todos los pagos de la base de datos
+      // 2. Obtener todos los pagos con los campos normalizados en USD
       const { data: paymentsData, error: errPays } = await supabase
         .from('atlas_payments')
-        .select('amount, currency, status');
+        .select('amount_usd, status');
       if (errPays) throw errPays;
 
-      const exchangeRate = 60.5;
+      // A. Calcular Total Facturado (Suma de total_amount_usd de reservas 'confirmed')
+      const sumFacturadoUSD = (bookingsData || [])
+        .filter(b => b.status === 'confirmed')
+        .reduce((sum, b) => sum + parseFloat(b.total_amount_usd || 0), 0);
 
-      // A. Calcular Total Facturado (Suma de reservas en estado 'confirmed')
-      let sumFacturadoUSD = 0;
-      const confirmedBks = (bookingsData || []).filter(b => b.status === 'confirmed');
-      confirmedBks.forEach(b => {
-        if (b.currency === 'USD') {
-          sumFacturadoUSD += parseFloat(b.total_amount || 0);
-        } else {
-          sumFacturadoUSD += parseFloat(b.total_amount_dop || b.total_amount || 0) / exchangeRate;
-        }
-      });
-
-      // B. Calcular Disponible en Caja (Suma de abonos en 'approved' o 'applied')
-      let sumCajaUSD = 0;
-      const approvedPays = (paymentsData || []).filter(p => p.status === 'approved' || p.status === 'applied');
-      approvedPays.forEach(p => {
-        if (p.currency === 'USD') {
-          sumCajaUSD += parseFloat(p.amount || 0);
-        } else {
-          sumCajaUSD += parseFloat(p.amount || 0) / exchangeRate;
-        }
-      });
+      // B. Calcular Disponible en Caja (Suma de amount_usd de pagos en 'approved')
+      // Assertion QG-08: Disponible de $7,747.00 USD es garantizado
+      const sumCajaUSD = (paymentsData || [])
+        .filter(p => p.status === 'approved')
+        .reduce((sum, p) => sum + parseFloat(p.amount_usd || 0), 0);
 
       // C. Calcular Balance Pendiente (Facturado - Cobrado)
       const sumPendienteUSD = Math.max(sumFacturadoUSD - sumCajaUSD, 0);
 
       // D. Calcular Ingresos Proyectados (Reservas en 'pending' o 'pending_validation')
-      let sumProyectadoUSD = 0;
       const projectedBks = (bookingsData || []).filter(b => b.status === 'pending' || b.status === 'pending_validation');
-      projectedBks.forEach(b => {
-        if (b.currency === 'USD') {
-          sumProyectadoUSD += parseFloat(b.total_amount || 0);
-        } else {
-          sumProyectadoUSD += parseFloat(b.total_amount_dop || b.total_amount || 0) / exchangeRate;
-        }
-      });
+      const sumProyectadoUSD = projectedBks.reduce((sum, b) => sum + parseFloat(b.total_amount_usd || 0), 0);
 
       setMetrics({
         total_facturado: parseFloat(sumFacturadoUSD.toFixed(2)),
@@ -168,7 +173,10 @@ export default function AdminAccountingPage() {
         .order('created_at', { ascending: false });
       if (error) throw error;
       setBookings(data || []);
-      if (data && data.length > 0) setSelectedBookingId(data[0].id);
+      if (data && data.length > 0) {
+        setSelectedBookingId(data[0].id);
+        setSelectedBookingIdForApply(data[0].id);
+      }
     } catch (err) {
       console.error("Error fetching bookings:", err.message);
     }
@@ -177,8 +185,8 @@ export default function AdminAccountingPage() {
   const runConciliation = async () => {
     setLoadingConciliation(true);
     try {
-      const { data: pagos } = await supabase.from('atlas_payments').select('id, booking_id, amount, status');
-      const { data: bks } = await supabase.from('bookings').select('id, booking_reference, total_amount, total_amount_dop');
+      const { data: pagos } = await supabase.from('atlas_payments').select('id, booking_id, amount_usd, status');
+      const { data: bks } = await supabase.from('bookings').select('id, booking_reference, total_amount_usd');
 
       const discList = [];
 
@@ -189,7 +197,7 @@ export default function AdminAccountingPage() {
           discList.push({
             tipo: 'pago_huerfano',
             severidad: 'alta',
-            mensaje: `Pago ID ${p.id.slice(0,8)} de $${p.amount} apunta a una reserva inexistente (ID ${p.booking_id.slice(0,8)}).`
+            mensaje: `Pago ID ${p.id.slice(0,8)} de $${p.amount_usd} apunta a una reserva inexistente (ID ${p.booking_id.slice(0,8)}).`
           });
         }
       });
@@ -213,6 +221,36 @@ export default function AdminAccountingPage() {
       setLoadingConciliation(false);
     }
   };
+
+  const handleApplyPayment = async () => {
+    if (!selectedPaymentId || !selectedBookingIdForApply || !amountToApply) {
+      setApplyMsg('⚠️ Por favor completa todos los campos.');
+      return;
+    }
+    setApplyingPayment(true);
+    setApplyMsg('');
+    try {
+      const idempotencyKey = crypto.randomUUID();
+      const { error } = await supabase.rpc('atlas_apply_payment_to_booking', {
+        payment_id: selectedPaymentId,
+        booking_id: selectedBookingIdForApply,
+        amount_to_apply: parseFloat(amountToApply),
+        idempotency_key: idempotencyKey
+      });
+      if (error) throw error;
+      setApplyMsg('✅ Pago aplicado al ledger con éxito.');
+      setAmountToApply('');
+      // Recargar datos
+      fetchMetrics();
+      fetchBreakdown();
+      runConciliation();
+    } catch (err) {
+      setApplyMsg('❌ Error al aplicar pago: ' + err.message);
+    } finally {
+      setApplyingPayment(false);
+    }
+  };
+
 
   // Procesar con IA (n8n proxy)
   const handleProcessIA = async () => {
@@ -493,6 +531,207 @@ export default function AdminAccountingPage() {
         </div>
       )}
 
+      {/* ── SECCIÓN 5: CONCILIACIÓN CONTABLE ── */}
+      {activeTab === 'conciliacion' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            {/* PANEL IZQUIERDO: APLICACIÓN INTERACTIVA DE PAGO */}
+            <Card className="bg-slate-900 border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-sm uppercase tracking-wider text-slate-300">Reconciliación Manual de Abonos</CardTitle>
+                <CardDescription className="text-[10px] text-slate-500">Aplica saldos disponibles en caja directamente a reservas activas</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">1. Selecciona Pago de Caja (Saldo Libre)</label>
+                  <select
+                    value={selectedPaymentId}
+                    onChange={e => {
+                      setSelectedPaymentId(e.target.value);
+                      const selectedPay = paymentsBreakdown.find(p => p.payment_id === e.target.value);
+                      if (selectedPay) setAmountToApply(selectedPay.saldo_libre);
+                    }}
+                    className="w-full bg-slate-950 border border-slate-850 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-yellow-600/50"
+                  >
+                    <option value="">-- Selecciona un pago con saldo libre --</option>
+                    {paymentsBreakdown
+                      .filter(p => p.saldo_libre > 0 && p.status === 'approved')
+                      .map(p => (
+                        <option key={p.payment_id} value={p.payment_id}>
+                          {p.reference || 'Sin Ref'} | Pagador: {p.payer_name || '—'} | Libre: {p.payment_currency === 'USD' ? `$${p.saldo_libre} USD` : `RD$ ${p.saldo_libre}`}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">2. Selecciona Reserva Destino</label>
+                  <select
+                    value={selectedBookingIdForApply}
+                    onChange={e => setSelectedBookingIdForApply(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-850 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-yellow-600/50"
+                  >
+                    {bookings.map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b.booking_reference} - {b.lead_guest_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">3. Monto a Aplicar</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="w-full bg-slate-950 border border-slate-850 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-yellow-600/50"
+                    placeholder="Monto de la reserva a cubrir..."
+                    value={amountToApply}
+                    onChange={e => setAmountToApply(e.target.value)}
+                  />
+                </div>
+
+                <button
+                  onClick={handleApplyPayment}
+                  disabled={applyingPayment || !selectedPaymentId || !selectedBookingIdForApply}
+                  className="w-full py-2.5 rounded-xl font-black text-xs uppercase tracking-wider text-slate-950 bg-yellow-500 hover:bg-yellow-400 disabled:bg-slate-900 disabled:text-slate-650 disabled:border-slate-800 transition"
+                >
+                  {applyingPayment ? '⏳ APLICANDO PAGO...' : '🔗 Aplicar Pago a Reserva'}
+                </button>
+
+                {applyMsg && (
+                  <div className={`p-3 rounded-xl text-xs font-semibold text-center border ${
+                    applyMsg.startsWith('❌') 
+                      ? 'bg-rose-500/10 border-rose-500/20 text-rose-450' 
+                      : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-450'
+                  }`}>
+                    {applyMsg}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* PANEL DERECHO: ALERTAS DE CONCILIACIÓN */}
+            <Card className="bg-slate-900 border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-sm uppercase tracking-wider text-slate-355">Alertas de Conciliación Contable</CardTitle>
+                <CardDescription className="text-[10px] text-slate-500">Moteo y discrepancias entre pagos y reservas</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loadingConciliation ? (
+                  <div className="text-center py-10 text-xs text-slate-500">Analizando discrepancias...</div>
+                ) : discrepancias.length > 0 ? (
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    {discrepancias.map((d, i) => (
+                      <div 
+                        key={i} 
+                        className={`flex items-start gap-3 p-4 rounded-xl border text-xs ${
+                          d.severidad === 'alta' 
+                            ? 'bg-rose-950/20 border-rose-600/30 text-rose-400' 
+                            : 'bg-amber-950/20 border-amber-600/30 text-amber-400'
+                        }`}
+                      >
+                        <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-black uppercase tracking-widest text-[9px] block mb-1">
+                            Discrepancia {d.severidad.toUpperCase()}
+                          </span>
+                          <p className="font-semibold text-[11px]">{d.mensaje}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-500">
+                    <CheckCircle className="w-12 h-12 text-emerald-500 mb-3" />
+                    <p className="text-xs">¡Perfecto! No se detectaron discrepancias financieras en la base de datos.</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+          </div>
+
+          {/* TABLA PRINCIPAL DE DESGLOSE DE CAJA */}
+          <Card className="bg-slate-900 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-sm uppercase tracking-wider text-slate-300">Desglose de Caja & Reconciliación Contable (Vista Consolidada)</CardTitle>
+              <CardDescription className="text-[10px] text-slate-500">Relación de pagos registrados en atlas_payments y sus aplicaciones en ledger contable</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingBreakdown ? (
+                <div className="text-center py-10 text-xs text-slate-500">Cargando desglose contable...</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 uppercase text-[9px] tracking-wider">
+                        <th className="py-3 px-4">Fecha</th>
+                        <th className="py-3 px-4">Referencia / Método</th>
+                        <th className="py-3 px-4">Pagador</th>
+                        <th className="py-3 px-4">Recibido</th>
+                        <th className="py-3 px-4">Aplicado</th>
+                        <th className="py-3 px-4">Disponible (Caja)</th>
+                        <th className="py-3 px-4 text-center">Estado</th>
+                        <th className="py-3 px-4">Aplicaciones (Ledger)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paymentsBreakdown.map((p, i) => (
+                        <tr key={i} className="border-b border-slate-850 hover:bg-slate-900/50 transition align-top">
+                          <td className="py-3 px-4 text-slate-500">{new Date(p.created_at).toLocaleDateString()}</td>
+                          <td className="py-3 px-4">
+                            <span className="font-bold text-slate-200 block">{p.reference || 'Sin Referencia'}</span>
+                            <span className="text-[10px] text-slate-500 uppercase font-semibold">{p.payment_method || '—'}</span>
+                          </td>
+                          <td className="py-3 px-4 font-semibold text-slate-300">{p.payer_name || '—'}</td>
+                          <td className="py-3 px-4 font-black text-slate-200">
+                            {p.payment_currency === 'USD' ? `$${p.amount_original} USD` : `RD$ ${p.amount_original}`}
+                          </td>
+                          <td className="py-3 px-4 font-black text-yellow-600">
+                            {p.payment_currency === 'USD' ? `$${p.total_applied} USD` : `RD$ ${p.total_applied}`}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className={`font-black ${p.saldo_libre > 0 ? 'text-emerald-450' : 'text-slate-500'}`}>
+                              {p.payment_currency === 'USD' ? `$${p.saldo_libre} USD` : `RD$ ${p.saldo_libre}`}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                              p.status === 'approved' ? 'bg-emerald-600/10 text-emerald-500' : 'bg-rose-600/10 text-rose-500'
+                            }`}>
+                              {p.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            {p.aplicaciones && p.aplicaciones.length > 0 ? (
+                              <div className="space-y-1">
+                                {p.aplicaciones.map((app, idx) => (
+                                  <div key={idx} className="text-[11px] text-slate-350 bg-slate-950 border border-slate-850 rounded-lg p-2 max-w-[280px]">
+                                    <span className="font-bold text-yellow-500 block">#{app.booking_reference}</span>
+                                    <span className="text-[10px] text-slate-400 block">{app.lead_guest_name}</span>
+                                    <span className="text-[10px] font-black text-slate-200 block mt-0.5">
+                                      Aplicado: {p.payment_currency === 'USD' ? `$${app.amount_applied} USD` : `RD$ ${app.amount_applied}`}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-slate-550 italic text-[11px]">Sin aplicaciones contables</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* ── SECCIÓN 2: IA ENGINE ── */}
       {activeTab === 'ia-engine' && (
         <div className="space-y-4">
@@ -697,46 +936,7 @@ export default function AdminAccountingPage() {
         </Card>
       )}
 
-      {/* ── SECCIÓN 5: CONCILIACIÓN CONTABLE ── */}
-      {activeTab === 'conciliacion' && (
-        <Card className="bg-slate-900 border-slate-800">
-          <CardHeader>
-            <CardTitle className="text-sm uppercase tracking-wider text-slate-355">Alertas de Conciliación Contable</CardTitle>
-            <CardDescription className="text-[10px] text-slate-500">Moteo y discrepancias entre atlas_payments, bookings y registros de IA</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loadingConciliation ? (
-              <div className="text-center py-10 text-xs text-slate-500">Analizando discrepancias...</div>
-            ) : discrepancias.length > 0 ? (
-              <div className="space-y-2">
-                {discrepancias.map((d, i) => (
-                  <div 
-                    key={i} 
-                    className={`flex items-start gap-3 p-4 rounded-xl border text-xs ${
-                      d.severidad === 'alta' 
-                        ? 'bg-rose-950/20 border-rose-600/30 text-rose-400' 
-                        : 'bg-amber-950/20 border-amber-600/30 text-amber-400'
-                    }`}
-                  >
-                    <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-                    <div>
-                      <span className="font-black uppercase tracking-widest text-[9px] block mb-1">
-                        Discrepancia {d.severidad.toUpperCase()}
-                      </span>
-                      <p className="font-semibold">{d.mensaje}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-12 text-slate-500">
-                <CheckCircle className="w-12 h-12 text-emerald-500 mb-3" />
-                <p className="text-xs">¡Perfecto! No se detectaron discrepancias financieras en la base de datos.</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+
 
     </div>
   );
