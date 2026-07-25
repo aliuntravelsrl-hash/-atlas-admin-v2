@@ -72,20 +72,65 @@ export default function AdminAccountingPage() {
   const fetchMetrics = async () => {
     setLoadingMetrics(true);
     try {
-      const { data, error } = await supabase.rpc('get_accounting_dashboard');
-      if (error) throw error;
-      if (data) {
-        setMetrics({
-          total_facturado: parseFloat(data.facturado_usd || 0),
-          cash_available: parseFloat(data.efectivo_disponible_usd || 0),
-          pending_payments: parseFloat(data.pagos_pendientes_usd || 0),
-          tentative_bookings: parseInt(data.reservas_tentativas || 0),
-          projected_income: parseFloat(data.ingresos_proyectados_usd || 0)
-        });
-      }
+      // 1. Obtener todas las reservas de la base de datos
+      const { data: bookingsData, error: errBks } = await supabase
+        .from('bookings')
+        .select('total_amount, total_amount_dop, currency, status');
+      if (errBks) throw errBks;
+
+      // 2. Obtener todos los pagos de la base de datos
+      const { data: paymentsData, error: errPays } = await supabase
+        .from('atlas_payments')
+        .select('amount, currency, status');
+      if (errPays) throw errPays;
+
+      const exchangeRate = 60.5;
+
+      // A. Calcular Total Facturado (Suma de reservas en estado 'confirmed')
+      let sumFacturadoUSD = 0;
+      const confirmedBks = (bookingsData || []).filter(b => b.status === 'confirmed');
+      confirmedBks.forEach(b => {
+        if (b.currency === 'USD') {
+          sumFacturadoUSD += parseFloat(b.total_amount || 0);
+        } else {
+          sumFacturadoUSD += parseFloat(b.total_amount_dop || b.total_amount || 0) / exchangeRate;
+        }
+      });
+
+      // B. Calcular Disponible en Caja (Suma de abonos en 'approved' o 'applied')
+      let sumCajaUSD = 0;
+      const approvedPays = (paymentsData || []).filter(p => p.status === 'approved' || p.status === 'applied');
+      approvedPays.forEach(p => {
+        if (p.currency === 'USD') {
+          sumCajaUSD += parseFloat(p.amount || 0);
+        } else {
+          sumCajaUSD += parseFloat(p.amount || 0) / exchangeRate;
+        }
+      });
+
+      // C. Calcular Balance Pendiente (Facturado - Cobrado)
+      const sumPendienteUSD = Math.max(sumFacturadoUSD - sumCajaUSD, 0);
+
+      // D. Calcular Ingresos Proyectados (Reservas en 'pending' o 'pending_validation')
+      let sumProyectadoUSD = 0;
+      const projectedBks = (bookingsData || []).filter(b => b.status === 'pending' || b.status === 'pending_validation');
+      projectedBks.forEach(b => {
+        if (b.currency === 'USD') {
+          sumProyectadoUSD += parseFloat(b.total_amount || 0);
+        } else {
+          sumProyectadoUSD += parseFloat(b.total_amount_dop || b.total_amount || 0) / exchangeRate;
+        }
+      });
+
+      setMetrics({
+        total_facturado: parseFloat(sumFacturadoUSD.toFixed(2)),
+        cash_available: parseFloat(sumCajaUSD.toFixed(2)),
+        pending_payments: parseFloat(sumPendienteUSD.toFixed(2)),
+        tentative_bookings: projectedBks.length,
+        projected_income: parseFloat(sumProyectadoUSD.toFixed(2))
+      });
     } catch (err) {
       console.error("Error fetching metrics:", err.message);
-      // Fallback seguro a 0 en caso de error
       setMetrics({
         total_facturado: 0,
         cash_available: 0,
