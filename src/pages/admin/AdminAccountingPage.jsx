@@ -74,24 +74,24 @@ export default function AdminAccountingPage() {
     try {
       const { data, error } = await supabase.rpc('get_accounting_dashboard');
       if (error) throw error;
-      if (data && data.length > 0) {
+      if (data) {
         setMetrics({
-          total_facturado: parseFloat(data[0].total_facturado || 0),
-          cash_available: parseFloat(data[0].cash_available || 0),
-          pending_payments: parseFloat(data[0].pending_payments || 0),
-          tentative_bookings: parseInt(data[0].tentative_bookings || 0),
-          projected_income: parseFloat(data[0].projected_income || 0)
+          total_facturado: parseFloat(data.facturado_usd || 0),
+          cash_available: parseFloat(data.efectivo_disponible_usd || 0),
+          pending_payments: parseFloat(data.pagos_pendientes_usd || 0),
+          tentative_bookings: parseInt(data.reservas_tentativas || 0),
+          projected_income: parseFloat(data.ingresos_proyectados_usd || 0)
         });
       }
     } catch (err) {
       console.error("Error fetching metrics:", err.message);
-      // Fallback local simulado en caso de que la RPC no este creada aun
+      // Fallback seguro a 0 en caso de error
       setMetrics({
-        total_facturado: 185000,
-        cash_available: 125000,
-        pending_payments: 60000,
-        tentative_bookings: 5,
-        projected_income: 42000
+        total_facturado: 0,
+        cash_available: 0,
+        pending_payments: 0,
+        tentative_bookings: 0,
+        projected_income: 0
       });
     } finally {
       setLoadingMetrics(false);
