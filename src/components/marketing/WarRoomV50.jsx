@@ -60,6 +60,7 @@ export const WarRoomV50 = () => {
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [selectedAgentLogs, setSelectedAgentLogs] = useState(null); // Drawer de Hermes
   const [logFilter, setLogFilter] = useState({ nivel: 'all', origen: 'all' });
+  const [timeFilter, setTimeFilter] = useState('all'); // '24h', '7d', 'all' (Fase 11)
   const [sectionErrors, setSectionErrors] = useState({});
   
   // Refresh & Timers
@@ -185,7 +186,7 @@ export const WarRoomV50 = () => {
       // SWAP ATÓMICO - Hermes Reporter (cadencias)
       if (logsRes.status === 'fulfilled' && !logsRes.value.error && logsRes.value.data) {
         const logsData = logsRes.value.data;
-        const yesterday = new Date(Date.now() - 86400000);
+        const yesterday = new Date(Date.now() - 7 * 86400000);
         const recentLogs = logsData.filter(l => new Date(l.created_at) >= yesterday);
 
         let tempActivity = {};
@@ -339,9 +340,16 @@ export const WarRoomV50 = () => {
     return allLogs.filter(log => {
       if (logFilter.nivel !== 'all' && log.nivel !== logFilter.nivel) return false;
       if (logFilter.origen !== 'all' && log.origen !== logFilter.origen) return false;
+      
+      if (timeFilter !== 'all') {
+        const logDate = new Date(log.created_at);
+        const limitTime = timeFilter === '24h' ? 86400000 : 7 * 86400000;
+        if (Date.now() - logDate.getTime() > limitTime) return false;
+      }
+      
       return true;
     });
-  }, [allLogs, logFilter]);
+  }, [allLogs, logFilter, timeFilter]);
 
   // Extraer origenes unicos de logs
   const logOrigins = useMemo(() => {
@@ -623,6 +631,17 @@ export const WarRoomV50 = () => {
 
           {/* Filtros locales */}
           <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400">
+            {/* Filtro de tiempo (Fase 11) */}
+            <select
+              value={timeFilter}
+              onChange={e => setTimeFilter(e.target.value)}
+              className="bg-slate-950 border border-slate-850 px-2 py-1 rounded-lg focus:outline-none"
+            >
+              <option value="all">Tiempo: TODOS</option>
+              <option value="24h">Últimas 24h</option>
+              <option value="7d">Últimos 7 días</option>
+            </select>
+
             {/* Filtro de nivel */}
             <select
               value={logFilter.nivel}
