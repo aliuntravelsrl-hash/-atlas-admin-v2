@@ -68,21 +68,33 @@ export const WarRoomV50 = () => {
     setIsRefreshing(true);
 
     try {
-      const [taskRes, logsRes, capiRes, intelRes, ledgerRes, hkRes, ssotRes] = await Promise.allSettled([
+      const [
+        taskRes, 
+        logsRes, 
+        capiRes, 
+        intelRes, 
+        ledgerRes, 
+        hkRes, 
+        hCountRes, 
+        rCountRes, 
+        raCountRes, 
+        sCountRes, 
+        lCountRes, 
+        pCountRes
+      ] = await Promise.allSettled([
         supabase.rpc('get_warroom_task_summary'),
         supabase.from('logs_operativos').select('id, nivel, origen, evento, mensaje, created_at, resuelto').order('created_at', { ascending: false }).limit(50),
         supabase.from('crm_capi_logs').select('sent_at, status, created_at').order('sent_at', { ascending: false }).limit(5),
         supabase.from('competitive_intel').select('scrapeado_at').order('scrapeado_at', { ascending: false }).limit(1),
         supabase.rpc('get_payment_ledger_breakdown'),
         supabase.from('hotel_knowledge').select('id', { count: 'exact', head: true }).eq('activo', true),
-        Promise.all([
-          supabase.from('hotels_master').select('id', { count: 'exact', head: true }),
-          supabase.from('rooms').select('id', { count: 'exact', head: true }),
-          supabase.from('rates').select('id', { count: 'exact', head: true }),
-          supabase.from('seasons').select('id', { count: 'exact', head: true }),
-          supabase.from('crm_leads').select('id', { count: 'exact', head: true }),
-          supabase.from('payment_ledger').select('id', { count: 'exact', head: true })
-        ])
+        // SSOT Individual (Fase 11)
+        supabase.from('hotels_master').select('id', { count: 'exact', head: true }),
+        supabase.from('rooms').select('id', { count: 'exact', head: true }),
+        supabase.from('rates').select('id', { count: 'exact', head: true }),
+        supabase.from('seasons').select('id', { count: 'exact', head: true }),
+        supabase.from('crm_leads').select('id', { count: 'exact', head: true }),
+        supabase.from('payment_ledger').select('id', { count: 'exact', head: true })
       ]);
 
       // SWAP ATÓMICO - Section taskSummary
@@ -198,27 +210,25 @@ export const WarRoomV50 = () => {
         setAgentActivity(tempActivity);
       }
 
-      // SWAP ATÓMICO - SSOT Health
-      if (ssotRes.status === 'fulfilled') {
-        const [h, r, ra, s, l, p] = ssotRes.value;
-        setSsotHealth({
-          hotels: h.status === 'fulfilled' ? h.value.count : 0,
-          rooms: r.status === 'fulfilled' ? r.value.count : 0,
-          rates: ra.status === 'fulfilled' ? ra.value.count : 0,
-          seasons: s.status === 'fulfilled' ? s.value.count : 0,
-          leads: l.status === 'fulfilled' ? l.value.count : 0,
-          ledger: p.status === 'fulfilled' ? p.value.count : 0,
-          media: 502,
-          rag: '116/116 (100%)',
-          loading: false
-        });
-      }
+      // SWAP ATÓMICO - SSOT Health (Desagrupado y tolerante a fallos)
+      setSsotHealth({
+        hotels: (hCountRes.status === 'fulfilled' && !hCountRes.value.error) ? (hCountRes.value.count || 0) : 0,
+        rooms: (rCountRes.status === 'fulfilled' && !rCountRes.value.error) ? (rCountRes.value.count || 0) : 0,
+        rates: (raCountRes.status === 'fulfilled' && !raCountRes.value.error) ? (raCountRes.value.count || 0) : 0,
+        seasons: (sCountRes.status === 'fulfilled' && !sCountRes.value.error) ? (sCountRes.value.count || 0) : 0,
+        leads: (lCountRes.status === 'fulfilled' && !lCountRes.value.error) ? (lCountRes.value.count || 0) : 0,
+        ledger: (pCountRes.status === 'fulfilled' && !pCountRes.value.error) ? (pCountRes.value.count || 0) : 0,
+        media: 502,
+        rag: '116/116 (100%)',
+        loading: false
+      });
 
       setLastRefresh(new Date());
       setCablesCheckedAt(new Date());
     } catch (err) {
       console.error("Error cargando el War Room:", err);
     } finally {
+      setSsotHealth(prev => ({ ...prev, loading: false }));
       refreshInFlight.current = false;
       setIsRefreshing(false);
     }
