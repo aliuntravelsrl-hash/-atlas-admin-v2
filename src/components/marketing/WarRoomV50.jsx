@@ -106,10 +106,11 @@ export const WarRoomV50 = () => {
       ]);
 
       // SWAP ATÓMICO - Section taskSummary
-      if (taskRes.status === 'fulfilled' && !taskRes.value.error) {
-        setOwners(taskRes.value.data || []);
+      if (taskRes.status === 'fulfilled' && !taskRes.value.error && taskRes.value.data) {
+        setOwners(taskRes.value.data.owners || []);
         setSectionErrors(prev => ({ ...prev, tasks: null }));
       } else {
+        setOwners([]);
         setSectionErrors(prev => ({ ...prev, tasks: 'DATA UNAVAILABLE' }));
       }
 
