@@ -113,7 +113,11 @@ export function AppShell() {
               <Route path="dashboard26" element={<BookingOpsPanel />} />
               <Route path="marketing" element={<MarketingMissionControl />} />
               <Route path="ariadne"   element={<AriadnePanel />} />
-              <Route path="warroom" element={<WarRoomV50 />} />
+              <Route path="warroom" element={
+                <MissionErrorBoundary>
+                  <WarRoomV50 />
+                </MissionErrorBoundary>
+              } />
               <Route path="integrity" element={<IntegrityMonitor />} />
               <Route path="mission" element={
                 <MissionErrorBoundary>
