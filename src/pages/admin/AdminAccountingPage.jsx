@@ -169,7 +169,22 @@ export default function AdminAccountingPage() {
     try {
       const { data, error } = await supabase
         .from('bookings')
-        .select('id, booking_reference, lead_guest_name, booking_type, total_amount, total_amount_dop, currency')
+        .select(`
+          id, 
+          booking_reference, 
+          lead_guest_name, 
+          booking_type, 
+          total_amount, 
+          total_amount_dop, 
+          currency,
+          crm_leads (
+            source,
+            hotel_interest,
+            message,
+            phone,
+            email
+          )
+        `)
         .order('created_at', { ascending: false });
       if (error) throw error;
       setBookings(data || []);
@@ -706,16 +721,37 @@ export default function AdminAccountingPage() {
                           </td>
                           <td className="py-3 px-4">
                             {p.aplicaciones && p.aplicaciones.length > 0 ? (
-                              <div className="space-y-1">
-                                {p.aplicaciones.map((app, idx) => (
-                                  <div key={idx} className="text-[11px] text-slate-350 bg-slate-950 border border-slate-850 rounded-lg p-2 max-w-[280px]">
-                                    <span className="font-bold text-yellow-500 block">#{app.booking_reference}</span>
-                                    <span className="text-[10px] text-slate-400 block">{app.lead_guest_name}</span>
-                                    <span className="text-[10px] font-black text-slate-200 block mt-0.5">
-                                      Aplicado: {p.payment_currency === 'USD' ? `$${app.amount_applied} USD` : `RD$ ${app.amount_applied}`}
-                                    </span>
-                                  </div>
-                                ))}
+                              <div className="space-y-1.5">
+                                {p.aplicaciones.map((app, idx) => {
+                                  const relatedBooking = bookings.find(b => b.booking_reference === app.booking_reference);
+                                  const leadContext = relatedBooking?.crm_leads;
+                                  
+                                  return (
+                                    <div key={idx} className="text-[11px] text-slate-350 bg-slate-950 border border-slate-850 rounded-lg p-2.5 max-w-[280px] space-y-1.5 transition hover:border-slate-800">
+                                      <div>
+                                        <span className="font-bold text-yellow-500 block">#{app.booking_reference}</span>
+                                        <span className="text-[10px] text-slate-400 block">{app.lead_guest_name}</span>
+                                        <span className="text-[10px] font-black text-slate-200 block mt-0.5">
+                                          Aplicado: {p.payment_currency === 'USD' ? `$${app.amount_applied} USD` : `RD$ ${app.amount_applied}`}
+                                        </span>
+                                      </div>
+                                      
+                                      {leadContext && (
+                                        <div className="pt-1.5 border-t border-slate-900 text-[10px] space-y-0.5 text-slate-500">
+                                          <span className="block"><strong className="text-slate-400">Origen:</strong> {leadContext.source || '—'}</span>
+                                          {leadContext.hotel_interest && (
+                                            <span className="block"><strong className="text-slate-400">Interés:</strong> {leadContext.hotel_interest}</span>
+                                          )}
+                                          {leadContext.message && (
+                                            <span className="block italic text-[9px] text-slate-600 truncate" title={leadContext.message}>
+                                              "{leadContext.message}"
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             ) : (
                               <span className="text-slate-550 italic text-[11px]">Sin aplicaciones contables</span>

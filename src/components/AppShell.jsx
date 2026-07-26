@@ -12,7 +12,7 @@ import CreateOfferForm from './marketing/CreateOfferForm'
 
 // Phase 2 components
 import DashboardV26 from './marketing/DashboardV26'
-import WarRoomV41 from './marketing/WarRoomV41'
+import WarRoomV50 from './marketing/WarRoomV50'
 import IntegrityMonitor from './marketing/IntegrityMonitor'
 import MissionControlLive from './marketing/MissionControlLive'
 import PipelineKanban from './marketing/PipelineKanban'
@@ -113,7 +113,7 @@ export function AppShell() {
               <Route path="dashboard26" element={<BookingOpsPanel />} />
               <Route path="marketing" element={<MarketingMissionControl />} />
               <Route path="ariadne"   element={<AriadnePanel />} />
-              <Route path="warroom" element={<WarRoomV41 />} />
+              <Route path="warroom" element={<WarRoomV50 />} />
               <Route path="integrity" element={<IntegrityMonitor />} />
               <Route path="mission" element={
                 <MissionErrorBoundary>
