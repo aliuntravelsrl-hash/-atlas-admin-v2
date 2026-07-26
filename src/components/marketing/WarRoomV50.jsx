@@ -29,6 +29,13 @@ const CABLE_CONFIG = {
   google_capi: { impact: 'planned', isConfigured: false, label: 'Google Capi' }
 };
 
+const withTimeout = (promise, ms = 4000) => {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), ms))
+  ]);
+};
+
 export const WarRoomV50 = () => {
   // Estado principal (Swap Atómico)
   const [owners, setOwners] = useState([]);
@@ -82,19 +89,19 @@ export const WarRoomV50 = () => {
         lCountRes, 
         pCountRes
       ] = await Promise.allSettled([
-        supabase.rpc('get_warroom_task_summary'),
-        supabase.from('logs_operativos').select('id, nivel, origen, evento, mensaje, created_at, resuelto').order('created_at', { ascending: false }).limit(50),
-        supabase.from('crm_capi_logs').select('sent_at, status, created_at').order('sent_at', { ascending: false }).limit(5),
-        supabase.from('competitive_intel').select('scrapeado_at').order('scrapeado_at', { ascending: false }).limit(1),
-        supabase.rpc('get_payment_ledger_breakdown'),
-        supabase.from('hotel_knowledge').select('id', { count: 'exact', head: true }).eq('activo', true),
+        withTimeout(supabase.rpc('get_warroom_task_summary')),
+        withTimeout(supabase.from('logs_operativos').select('id, nivel, origen, evento, mensaje, created_at, resuelto').order('created_at', { ascending: false }).limit(50)),
+        withTimeout(supabase.from('crm_capi_logs').select('sent_at, status, created_at').order('sent_at', { ascending: false }).limit(5)),
+        withTimeout(supabase.from('competitive_intel').select('scrapeado_at').order('scrapeado_at', { ascending: false }).limit(1)),
+        withTimeout(supabase.rpc('get_payment_ledger_breakdown')),
+        withTimeout(supabase.from('hotel_knowledge').select('id', { count: 'exact', head: true }).eq('activo', true)),
         // SSOT Individual (Fase 11)
-        supabase.from('hotels_master').select('id', { count: 'exact', head: true }),
-        supabase.from('rooms').select('id', { count: 'exact', head: true }),
-        supabase.from('rates').select('id', { count: 'exact', head: true }),
-        supabase.from('seasons').select('id', { count: 'exact', head: true }),
-        supabase.from('crm_leads').select('id', { count: 'exact', head: true }),
-        supabase.from('payment_ledger').select('id', { count: 'exact', head: true })
+        withTimeout(supabase.from('hotels_master').select('id', { count: 'exact', head: true })),
+        withTimeout(supabase.from('rooms').select('id', { count: 'exact', head: true })),
+        withTimeout(supabase.from('rates').select('id', { count: 'exact', head: true })),
+        withTimeout(supabase.from('seasons').select('id', { count: 'exact', head: true })),
+        withTimeout(supabase.from('crm_leads').select('id', { count: 'exact', head: true })),
+        withTimeout(supabase.from('payment_ledger').select('id', { count: 'exact', head: true }))
       ]);
 
       // SWAP ATÓMICO - Section taskSummary
@@ -233,6 +240,22 @@ export const WarRoomV50 = () => {
       setIsRefreshing(false);
     }
   };
+
+  useEffect(() => {
+    loadAll();
+    
+    // Seguro de vida contra congelamientos del spinner inicial (Fase 11)
+    const safetyTimeout = setTimeout(() => {
+      setSsotHealth(prev => ({ ...prev, loading: false }));
+    }, 5000);
+
+    const interval = setInterval(loadAll, 60000);
+    
+    return () => {
+      clearTimeout(safetyTimeout);
+      clearInterval(interval);
+    };
+  }, []);
 
   // Lógica de Semáforos por Cable
   function resolveCableStatus({
