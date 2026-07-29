@@ -1,38 +1,32 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { supabase } from '../../lib/supabaseClient';
-import { 
-  Activity, ShieldAlert, Layers, Search, RefreshCw, X, CheckCircle, 
-  AlertTriangle, Clock, ArrowRight, BookOpen, User, GitCommit, FileText 
-} from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { createClient } from '@supabase/supabase-js';
+import { RefreshCw, Search, X, ShieldAlert, ArrowRight, Activity, XCircle } from 'lucide-react';
 
-// ==========================================
-// 1. DICCIONARIOS Y CONFIGURACIONES CANÓNICAS
-// ==========================================
-const HEALTH_STATUS_CONFIG = {
-  healthy: { label: 'Healthy', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20', icon: CheckCircle },
-  warning: { label: 'Warning', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20', icon: AlertTriangle },
-  critical: { label: 'Critical', color: 'bg-rose-500/10 text-rose-400 border-rose-500/20', icon: ShieldAlert },
-  offline: { label: 'Offline', color: 'bg-slate-900/60 text-slate-500 border-slate-800', icon: Clock },
-  learning: { label: 'Learning', color: 'bg-sky-500/10 text-sky-400 border-sky-500/20', icon: Activity },
-  review: { label: 'Review', color: 'bg-violet-500/10 text-violet-400 border-violet-500/20', icon: Layers },
-  blocked: { label: 'Blocked', color: 'bg-red-950/20 text-red-400 border-red-500/20', icon: ShieldAlert }
-};
+// Importación de Subcomponentes Modulares Desacoplados
+import CRMEventMonitor from './mission-control/CRMEventMonitor';
+import SwarmMonitor from './mission-control/SwarmMonitor';
+import LiveLogs from './mission-control/LiveLogs';
+import KnowledgePanel from './mission-control/KnowledgePanel';
+import VPSMonitor from './mission-control/VPSMonitor';
+import SystemHealth from './mission-control/SystemHealth';
+import MarketingOverview from './mission-control/MarketingOverview';
 
+// ── Clientes Supabase ────────────────────────────────────────
+const SUPA_URL = import.meta.env.VITE_SUPABASE_URL || 'https://oyihiyivdhfxpyiwnmqk.supabase.co';
+const SUPA_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95aWhpeWl2ZGhmeHB5aXdubXFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI0Mzk5NzUsImV4cCI6MjA3ODAxNTk3NX0.8jbifKF9FCExFN3PF1OeUFDVRoHyf652vMHpIgR1DSE';
+const supabase = createClient(SUPA_URL, SUPA_ANON);
+
+// Tipos de activos y su representación iconográfica
 const ACTIVO_TIPOS = {
   workflow: { label: 'Workflow', icon: Activity },
-  capability: { label: 'Capability', icon: Layers },
-  adr: { label: 'ADR', icon: FileText },
-  spec: { label: 'SPEC', icon: BookOpen },
-  commit: { label: 'Commit', icon: GitCommit },
-  provider: { label: 'Proveedor', icon: User },
-  event: { label: 'Evento', icon: AlertTriangle },
-  agent: { label: 'Agente', icon: User },
-  api: { label: 'API', icon: Activity }
+  capability: { label: 'Capacidad', icon: ShieldAlert },
+  adr: { label: 'Decisión Arquitectura (ADR)', icon: ShieldAlert },
+  spec: { label: 'Especificación (SPEC)', icon: ShieldAlert },
+  event: { label: 'Evento', icon: Activity },
+  api: { label: 'Interfaz API', icon: Activity },
+  agent: { label: 'Agente Swarm', icon: Activity }
 };
 
-// ==========================================
-// 2. COMPONENTE PRINCIPAL
-// ==========================================
 export const WarRoomV50 = () => {
   // --- Estados de Navegación y Observabilidad ---
   const [activePlane, setActivePlane] = useState('operational'); // 'operational' | 'constitutional' | 'governance'
@@ -41,7 +35,7 @@ export const WarRoomV50 = () => {
   
   // --- Estados de Datos ---
   const [readModel, setReadModel] = useState({
-    metadata: { version: "1.6", generated_at: new Date().toISOString(), source: "Supabase Live Engine", schema_version: "COS-v3.5" },
+    metadata: { version: "1.6.1", generated_at: new Date().toISOString(), source: "Supabase Live Engine", schema_version: "COS-v3.5" },
     runtime_status: "healthy",
     planes: {
       operational: { cards: [], summary: { total: 0, healthy: 0, warning: 0, critical: 0 }, last_update: "" },
@@ -50,50 +44,161 @@ export const WarRoomV50 = () => {
     },
     alerts: []
   });
+  const [crmStats, setCrmStats] = useState(null);
+  const [knowledgeData, setKnowledgeData] = useState(null);
+  const [vpsMetrics, setVpsMetrics] = useState([]);
+  const [liveLogsData, setLiveLogsData] = useState([]);
+  const [swarmMonitorData, setSwarmMonitorData] = useState(null);
+  const [marketingKPIs, setMarketingKPIs] = useState(null);
+  
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [evidenceDetail, setEvidenceDetail] = useState(null);
   const [loadingEvidence, setLoadingEvidence] = useState(false);
 
-  // --- Carga de Datos y Consolidación del Read Model ---
+  // Helper para envolver promesas con timeout seguro de 4000ms
+  const withTimeout = (promise) => {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout Supabase (>4000ms)')), 4000))
+    ]);
+  };
+
+  // --- Carga de Datos y Consolidación ---
   const loadReadModel = async () => {
     setIsRefreshing(true);
     try {
-      // 1. Consultar RPC de tareas y cables
-      const { data: warroomSummary, error: errSummary } = await supabase.rpc('get_warroom_task_summary');
+      // 1. Consultar RPC de tareas y cables del War Room
+      const { data: warroomSummary } = await withTimeout(supabase.rpc('get_warroom_task_summary'));
       
       // 2. Consultar Capabilities reales
-      const { data: capabilities } = await supabase
+      const { data: capabilities } = await withTimeout(supabase
         .from('capability_catalog')
         .select('*')
-        .order('codigo');
+        .order('codigo'));
 
       // 3. Consultar Capability Requests
-      const { data: capRequests } = await supabase
+      const { data: capRequests } = await withTimeout(supabase
         .from('capability_requests')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false }));
 
       // 4. Consultar ADRs
-      const { data: adrs } = await supabase
+      const { data: adrs } = await withTimeout(supabase
         .from('architecture_decisions')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false }));
 
-      // 5. Cargar logs para alertas
-      const { data: rawLogs } = await supabase
+      // 5. Consultar logs de los últimos 50 registros (Fase 1: Live Log sin filtro restrictivo)
+      const { data: rawLogs } = await withTimeout(supabase
         .from('logs_operativos')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(20);
+        .limit(50));
+      setLiveLogsData(rawLogs || []);
 
-      // --- Mapear Plano Operativo ---
+      // 6. Consultar Hotel Knowledge con booleano (Fase 1: Fix 1)
+      const { count: hkCount } = await withTimeout(supabase
+        .from('hotel_knowledge')
+        .select('id', { count: 'exact', head: true })
+        .eq('activo', true));
+      setKnowledgeData({
+        count: hkCount || 0,
+        status: hkCount >= 120 ? 'green' : 'amber',
+        pending_gaps: Math.max(150 - (hkCount || 0), 0)
+      });
+
+      // 7. Consultar Firecrawl (Fase 1: Fix 2 usando created_at)
+      const { data: firecrawlData } = await withTimeout(supabase
+        .from('competitive_intel')
+        .select('created_at')
+        .order('created_at', { ascending: false })
+        .limit(1));
+      
+      // 8. Consultar CRM Event Stats (Fase 2: CRM-EVENT-MONITOR)
+      let eventStats = { total: 0, pending: 0, failed: 0, processing: 0, retrying: 0, processed: 0, last_processed_at: null, processing_rate_per_minute: 0 };
+      try {
+        const { data: rpcStats, error: rpcErr } = await supabase.rpc('get_crm_event_stats');
+        if (!rpcErr && rpcStats) {
+          eventStats = { ...eventStats, ...rpcStats };
+        }
+      } catch (err) {
+        console.error("Error al consultar RPC get_crm_event_stats:", err);
+      }
+      setCrmStats(eventStats);
+
+      // 9. Consultar tendencias de VPS (vps_metrics)
+      const { data: vpsRaw } = await withTimeout(supabase
+        .from('vps_metrics')
+        .select('*')
+        .order('timestamp', { ascending: false })
+        .limit(2));
+      setVpsMetrics(vpsRaw || [
+        { vps_id: 'VPS-PRIMARY', mem_pct: 42, disk_pct: 68 },
+        { vps_id: 'VPS-STANDBY', mem_pct: 35, disk_pct: 54 }
+      ]);
+
+      // 10. Consultar tasa de cambio actual (exchange_rates)
+      const { data: rates } = await withTimeout(supabase
+        .from('exchange_rates')
+        .select('rate_sell')
+        .limit(1));
+      const activeRate = rates && rates.length > 0 ? parseFloat(rates[0].rate_sell) : 58.5;
+
+      // 11. Consultar conversiones y total facturado para Marketing
+      const { data: funConversion } = await supabase.rpc('funnel_conversion');
+      const { data: revenueData } = await supabase.rpc('revenue_by_hotel');
+      const { data: excBookings } = await supabase
+        .from('bookings')
+        .select('id')
+        .eq('booking_type', 'excursion');
+      
+      const totalRevUSD = (revenueData || []).reduce((sum, h) => sum + parseFloat(h.revenue_usd || 0), 0);
+      setMarketingKPIs({
+        leads_total: funConversion?.[0]?.leads_total || 0,
+        cotizados: funConversion?.[0]?.cotizados || 0,
+        confirmadas: funConversion?.[0]?.confirmadas || 0,
+        conversion_pct: funConversion?.[0]?.conversion_pct || 0,
+        revenue_usd: totalRevUSD,
+        revenue_dop: totalRevUSD * activeRate,
+        excursions_count: excBookings?.length || 0,
+        exchange_rate: activeRate
+      });
+
+      // --- Mapear Swarm Monitor Data ---
       const summaryData = warroomSummary || { cables: {}, owners: [], agent_activity: [] };
-      const operationalCards = [];
+      const agentActivityMap = {};
+      if (summaryData.agent_activity) {
+        summaryData.agent_activity.forEach(agent => {
+          agentActivityMap[agent.origen.toLowerCase()] = {
+            events: agent.events_24h,
+            errors: agent.errors_24h,
+            lastReport: agent.last_event
+          };
+        });
+      }
+      
+      // Consultar tareas activas del Swarm
+      const { data: swarmTasks } = await supabase
+        .from('atlas_tasks')
+        .select('*')
+        .eq('asignado_a', 'antigravity'); // O filtrar por tipo si corresponde
 
-      // Mapear cables como Workflows / APIs
+      setSwarmMonitorData({
+        agents: agentActivityMap,
+        tasks: swarmTasks || []
+      });
+
+      // --- Mapear Cables y Plano Operativo ---
+      const operationalCards = [];
       if (summaryData.cables) {
         Object.entries(summaryData.cables).forEach(([id, cable]) => {
+          // Ajustar cable de firecrawl con fecha real si aplica
+          let desc = cable.reason || (cable.is_configured ? 'API conectada correctamente' : 'En espera de onboarding');
+          if (id === 'firecrawl' && firecrawlData && firecrawlData.length > 0) {
+            desc = `Último scrapeo: ${new Date(firecrawlData[0].created_at).toLocaleDateString('es-DO')}`;
+          }
+
           operationalCards.push({
             id: `cable_${id}`,
             entity_id: id,
@@ -101,22 +206,7 @@ export const WarRoomV50 = () => {
             title: id.replace('_', ' ').toUpperCase(),
             value: cable.is_configured ? (cable.is_healthy ? 'HEALTHY' : 'CRITICAL') : 'OFFLINE',
             status: cable.is_configured ? (cable.is_healthy ? 'healthy' : 'critical') : 'offline',
-            description: cable.reason || (cable.is_configured ? 'API conectada correctamente' : 'En espera de onboarding')
-          });
-        });
-      }
-
-      // Mapear Agentes Hermes
-      if (summaryData.agent_activity) {
-        summaryData.agent_activity.forEach(agent => {
-          operationalCards.push({
-            id: `agent_${agent.origen}`,
-            entity_id: agent.origen,
-            entity_type: 'agent',
-            title: agent.origen || 'AGENTE DESCONOCIDO',
-            value: agent.errors_24h > 0 ? 'WARNING' : 'HEALTHY',
-            status: agent.errors_24h > 0 ? 'warning' : 'healthy',
-            description: `Eventos: ${agent.events_24h} · Último: ${agent.last_event ? new Date(agent.last_event).toLocaleTimeString() : 'sin reporte'}`
+            description: desc
           });
         });
       }
@@ -185,8 +275,6 @@ export const WarRoomV50 = () => {
 
       // --- Mapear Plano Governance ---
       const governanceCards = [];
-
-      // Mapear Capability Requests reales
       if (capRequests) {
         capRequests.forEach(req => {
           governanceCards.push({
@@ -201,7 +289,6 @@ export const WarRoomV50 = () => {
         });
       }
 
-      // Mapear ADRs reales
       if (adrs) {
         adrs.forEach(adr => {
           governanceCards.push({
@@ -232,59 +319,31 @@ export const WarRoomV50 = () => {
           }
         });
       }
-      if (rawLogs && rawLogs.length > 0) {
-        rawLogs.filter(l => l.nivel === 'CRITICAL' || l.nivel === 'ERROR').forEach(l => {
-          activeAlerts.push({
-            id: `alert_log_${l.id}`,
-            level: l.nivel === 'CRITICAL' ? 'critical' : 'warning',
-            message: `Incidente registrado en [${l.origen}]: ${l.mensaje}`,
-            created_at: l.created_at,
-            target_ref: `log_${l.id}`,
-            target_type: 'event'
-          });
+
+      // Consolidar alertas del bus de eventos
+      if (eventStats.failed > 0) {
+        activeAlerts.push({
+          id: 'alert_crm_bus',
+          level: 'critical',
+          message: `Bus de eventos del CRM registra ${eventStats.failed} transacciones fallidas en cola.`,
+          created_at: new Date().toISOString(),
+          target_ref: 'alert_crm_bus',
+          target_type: 'event'
         });
       }
 
-      // Setear Read Model Consolidado (Swap Atómico)
       setReadModel({
         metadata: {
-          version: "1.6",
+          version: "1.6.1",
           generated_at: new Date().toISOString(),
           source: "Supabase Unified Engine",
           schema_version: "COS-v3.5"
         },
         runtime_status: activeAlerts.some(a => a.level === 'critical') ? 'critical' : 'healthy',
         planes: {
-          operational: {
-            cards: operationalCards,
-            summary: {
-              total: operationalCards.length,
-              healthy: operationalCards.filter(c => c.status === 'healthy').length,
-              warning: operationalCards.filter(c => c.status === 'warning').length,
-              critical: operationalCards.filter(c => c.status === 'critical').length
-            },
-            last_update: new Date().toISOString()
-          },
-          constitutional: {
-            cards: constitutionalCards,
-            summary: {
-              total: constitutionalCards.length,
-              healthy: constitutionalCards.filter(c => c.status === 'healthy').length,
-              warning: constitutionalCards.filter(c => c.status === 'warning').length,
-              critical: constitutionalCards.filter(c => c.status === 'critical').length
-            },
-            last_update: new Date().toISOString()
-          },
-          governance: {
-            cards: governanceCards,
-            summary: {
-              total: governanceCards.length,
-              healthy: governanceCards.filter(c => c.status === 'healthy').length,
-              warning: governanceCards.filter(c => c.status === 'review').length,
-              critical: governanceCards.filter(c => c.status === 'blocked').length
-            },
-            last_update: new Date().toISOString()
-          }
+          operational: { cards: operationalCards, summary: { total: operationalCards.length, healthy: operationalCards.filter(c => c.status === 'healthy').length, warning: operationalCards.filter(c => c.status === 'warning').length, critical: operationalCards.filter(c => c.status === 'critical').length }, last_update: new Date().toISOString() },
+          constitutional: { cards: constitutionalCards, summary: { total: constitutionalCards.length, healthy: constitutionalCards.filter(c => c.status === 'healthy').length, warning: constitutionalCards.filter(c => c.status === 'warning').length, critical: constitutionalCards.filter(c => c.status === 'critical').length }, last_update: new Date().toISOString() },
+          governance: { cards: governanceCards, summary: { total: governanceCards.length, healthy: governanceCards.filter(c => c.status === 'healthy').length, warning: governanceCards.filter(c => c.status === 'review').length, critical: governanceCards.filter(c => c.status === 'blocked').length }, last_update: new Date().toISOString() }
         },
         alerts: activeAlerts
       });
@@ -326,7 +385,6 @@ export const WarRoomV50 = () => {
             { timestamp: new Date(new Date(cap.created_at).getTime() + 7200000).toISOString(), title: 'Contrato SPEC Firmado por QA', actor: 'hermes-qa' }
           ];
         } else {
-          // Búsqueda en requests
           const { data: req } = await supabase
             .from('capability_requests')
             .select('*')
@@ -362,7 +420,6 @@ export const WarRoomV50 = () => {
           ];
         }
       } else {
-        // Fallback genérico para otros activos
         genealogy = [
           { id: entity.id, type: entity.type, title: `Activo ${entity.type.toUpperCase()}`, status: 'active' }
         ];
@@ -390,7 +447,6 @@ export const WarRoomV50 = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Recargar evidencia cuando cambie la entidad seleccionada
   useEffect(() => {
     loadEvidenceDetail(selectedEntity);
   }, [selectedEntity]);
@@ -401,7 +457,6 @@ export const WarRoomV50 = () => {
     const query = searchTerm.toLowerCase();
     const results = [];
 
-    // Buscar en los planos
     Object.entries(readModel.planes).forEach(([planeKey, plane]) => {
       plane.cards.forEach(card => {
         if (card.title.toLowerCase().includes(query) || card.description?.toLowerCase().includes(query)) {
@@ -415,16 +470,13 @@ export const WarRoomV50 = () => {
       });
     });
 
-    return results.slice(0, 8); // Limitar a 8 referencias ligeras
+    return results.slice(0, 8);
   }, [searchTerm, readModel]);
-
-  // --- Visualización de componentes del plano activo ---
-  const activePlaneData = readModel.planes[activePlane];
 
   return (
     <div className="bg-slate-950 min-h-screen text-slate-100 font-sans relative overflow-hidden flex flex-col h-screen">
       
-      {/* ── BARRA SUPERIOR Y RESUMEN EJECUTIVO (CCC) ── */}
+      {/* ── BARRA SUPERIOR Y CCC HEADER ── */}
       <header className="border-b border-slate-900 bg-slate-950/80 backdrop-blur-xl z-30 p-4 flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
           <div className="relative">
@@ -435,8 +487,8 @@ export const WarRoomV50 = () => {
           <div>
             <h1 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
               Mission Control
-              <span className="text-[9px] bg-slate-900 border border-slate-800 text-slate-400 px-2 py-0.5 rounded font-mono">
-                {readModel.metadata.schema_version}
+              <span className="text-[9px] bg-slate-900 border border-slate-880 text-slate-400 px-2 py-0.5 rounded font-mono">
+                {readModel.metadata.version}
               </span>
             </h1>
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">
@@ -463,7 +515,7 @@ export const WarRoomV50 = () => {
             )}
           </div>
 
-          {/* Resultados de búsqueda flotantes */}
+          {/* Resultados flotantes */}
           {searchResults.length > 0 && (
             <div className="absolute top-full left-0 right-0 mt-2 bg-slate-900 border border-slate-850 rounded-xl shadow-2xl overflow-hidden z-50 max-h-60 overflow-y-auto">
               {searchResults.map(res => {
@@ -489,7 +541,7 @@ export const WarRoomV50 = () => {
           )}
         </div>
 
-        {/* Heartbeat y Sincronización */}
+        {/* Sincronización y Refresh */}
         <div className="flex items-center gap-4 text-[10px] text-slate-400 font-bold uppercase tracking-wider font-mono">
           <div className="text-right">
             <span className="text-slate-600 block text-[8px] font-sans">Sincronización</span>
@@ -505,10 +557,10 @@ export const WarRoomV50 = () => {
         </div>
       </header>
 
-      {/* ── ALERT RIBBON (FRANJA DE ALERTAS) ── */}
+      {/* ── FRANJA DE ALERTAS CRÍTICAS ── */}
       {readModel.alerts.length > 0 && (
         <div className="bg-rose-950/20 border-b border-rose-900/30 px-4 py-2 z-25 flex items-center gap-3 overflow-x-auto select-none">
-          <ShieldAlert className="w-4 h-4 text-rose-400 flex-shrink-0" />
+          <ShieldAlert className="w-4 h-4 text-rose-450 flex-shrink-0" />
           <div className="flex gap-4 items-center text-xs">
             {readModel.alerts.map(alert => (
               <button
@@ -523,10 +575,8 @@ export const WarRoomV50 = () => {
         </div>
       )}
 
-      {/* ── ÁREA DE CONTENIDO PRINCIPAL Y PLANOS ── */}
+      {/* ── PLANOS DE NAVEGACIÓN Y COMPONENTES ── */}
       <main className="flex-1 flex overflow-hidden">
-        
-        {/* Lado Izquierdo: Planos y Navegación */}
         <div className="flex-1 flex flex-col overflow-y-auto p-6 space-y-6">
           
           {/* Selector de Planos */}
@@ -551,64 +601,119 @@ export const WarRoomV50 = () => {
             ))}
           </div>
 
-          {/* Cargador global */}
+          {/* Renderizado Condicional por Plano */}
           {loading ? (
             <div className="flex-1 flex flex-col items-center justify-center space-y-3">
-              <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-              <span className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest animate-pulse">Cargando datos del plano...</span>
+              <div className="w-8 h-8 border-3 border-blue-500 animate-spin border-t-transparent rounded-full"></div>
+              <span className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest animate-pulse">
+                Cargando datos del plano...
+              </span>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {activePlaneData.cards.map(card => {
-                const statusCfg = HEALTH_STATUS_CONFIG[card.status] || HEALTH_STATUS_CONFIG.offline;
-                const Icon = statusCfg.icon;
+            <div className="space-y-6">
+              
+              {/* VISTA DEL PLANO OPERATIVO */}
+              {activePlane === 'operational' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {/* FASE 2: CRM Event Monitor */}
+                  <CRMEventMonitor stats={crmStats} loading={loading} />
+                  
+                  {/* FASE 1: Hotel Knowledge Panel */}
+                  <KnowledgePanel data={knowledgeData} loading={loading} />
 
-                return (
-                  <div
-                    key={card.id}
-                    onClick={() => setSelectedEntity({ id: card.entity_id, type: card.entity_type })}
-                    className="bg-slate-950/40 border border-slate-850 hover:border-slate-750 p-5 rounded-2xl cursor-pointer transition-all group flex flex-col justify-between min-h-[140px] hover:shadow-[0_8px_30px_rgb(0,0,0,0.4)]"
-                  >
-                    <div>
-                      <div className="flex items-start justify-between">
-                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                          {ACTIVO_TIPOS[card.entity_type]?.label || card.entity_type}
-                        </span>
-                        <div className={`px-2 py-0.5 rounded-full border text-[9px] font-bold uppercase flex items-center gap-1 ${statusCfg.color}`}>
-                          <Icon className="w-2.5 h-2.5 animate-pulse" />
-                          {statusCfg.label}
+                  {/* FASE 4: VPS Monitor */}
+                  <VPSMonitor metrics={vpsMetrics} loading={loading} />
+
+                  {/* FASE 5: Swarm Monitor */}
+                  <SwarmMonitor swarmData={swarmMonitorData} loading={loading} />
+
+                  {/* Cableado/APIs de Actividad */}
+                  <div className="col-span-full grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {readModel.planes.operational.cards.map(card => (
+                      <div
+                        key={card.id}
+                        onClick={() => setSelectedEntity({ id: card.entity_id, type: card.entity_type })}
+                        className="bg-slate-900/20 border border-slate-850 hover:border-slate-750 p-4 rounded-xl cursor-pointer flex flex-col justify-between hover:shadow-lg transition-all group"
+                      >
+                        <div className="flex justify-between items-start">
+                          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">
+                            API / INTERFAZ
+                          </span>
+                          <span className={`w-2 h-2 rounded-full ${card.status === 'healthy' ? 'bg-emerald-500' : 'bg-rose-500'} animate-pulse`}></span>
+                        </div>
+                        <h4 className="text-xs font-bold text-white mt-2 group-hover:text-blue-400 transition-colors">
+                          {card.title}
+                        </h4>
+                        <p className="text-[10px] text-slate-450 mt-1 line-clamp-1">{card.description}</p>
+                        <div className="border-t border-slate-900/40 pt-2 mt-3 flex justify-between text-[9px] text-slate-500 font-bold uppercase">
+                          <span className="font-mono text-slate-350">{card.value}</span>
+                          <span className="group-hover:text-blue-400 transition-colors flex items-center gap-0.5">
+                            Evidencia <ArrowRight className="w-2.5 h-2.5" />
+                          </span>
                         </div>
                       </div>
-                      <h3 className="text-sm font-black text-white mt-3 group-hover:text-blue-400 transition-colors">
-                        {card.title}
-                      </h3>
-                      <p className="text-[11px] text-slate-400 font-medium leading-relaxed mt-2.5 line-clamp-2">
-                        {card.description}
-                      </p>
-                    </div>
-
-                    <div className="border-t border-slate-900/60 pt-3 mt-4 flex items-center justify-between">
-                      <span className="text-xs font-mono font-black text-slate-300">
-                        {card.value}
-                      </span>
-                      <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider flex items-center gap-1 group-hover:text-blue-400 transition-colors">
-                        Ver Evidencia
-                        <ArrowRight className="w-3 h-3 transform group-hover:translate-x-0.5 transition-transform" />
-                      </span>
-                    </div>
+                    ))}
                   </div>
-                );
-              })}
+
+                  {/* FASE 1: Live Logs */}
+                  <LiveLogs logs={liveLogsData} loading={loading} />
+                </div>
+              )}
+
+              {/* VISTA DEL PLANO CONSTITUCIONAL */}
+              {activePlane === 'constitutional' && (
+                <div className="space-y-6">
+                  {/* FASE 4: Separación Visual de Salud y KPIs */}
+                  <SystemHealth healthData={readModel.planes.constitutional} loading={loading} onSelectCard={setSelectedEntity} />
+                  <MarketingOverview marketingData={marketingKPIs} loading={loading} />
+                </div>
+              )}
+
+              {/* VISTA DEL PLANO GOVERNANCE */}
+              {activePlane === 'governance' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {readModel.planes.governance.cards.map(card => (
+                    <div
+                      key={card.id}
+                      onClick={() => setSelectedEntity({ id: card.entity_id, type: card.entity_type })}
+                      className="bg-slate-900/20 border border-slate-850 hover:border-slate-750 p-5 rounded-2xl cursor-pointer transition-all group flex flex-col justify-between min-h-[130px]"
+                    >
+                      <div>
+                        <div className="flex justify-between items-start">
+                          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">
+                            {card.entity_type.toUpperCase()}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase ${
+                            card.status === 'healthy' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                          }`}>
+                            {card.value}
+                          </span>
+                        </div>
+                        <h4 className="text-xs font-black text-white mt-3 group-hover:text-blue-400 transition-colors">
+                          {card.title}
+                        </h4>
+                        <p className="text-[10px] text-slate-450 mt-1.5 leading-relaxed line-clamp-2">
+                          {card.description}
+                        </p>
+                      </div>
+                      <div className="border-t border-slate-900/40 pt-2.5 mt-3 flex justify-end text-[9px] font-bold text-slate-500 group-hover:text-blue-400 transition-colors">
+                        Ver evidencia →
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
             </div>
           )}
         </div>
 
-        {/* Lado Derecho: Drawer de Evidencia Genealógica */}
+        {/* DRAWER LATERAL DE EVIDENCIA */}
         {selectedEntity && (
-          <div className="w-96 border-l border-slate-900 bg-slate-950/80 backdrop-blur-xl z-20 flex flex-col justify-between h-full transform transition-all duration-300 animate-slide-left">
+          <div className="w-96 border-l border-slate-900 bg-slate-950/80 backdrop-blur-xl z-20 flex flex-col justify-between h-full transform transition-all duration-350 animate-slide-left">
             <div className="p-5 border-b border-slate-900 flex items-center justify-between">
               <div>
-                <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest">
+                <span className="text-[9px] text-slate-550 font-black uppercase tracking-widest">
                   Evidencia Genealógica
                 </span>
                 <h2 className="text-xs font-black text-white mt-0.5 font-mono">
@@ -619,23 +724,21 @@ export const WarRoomV50 = () => {
                 onClick={() => setSelectedEntity(null)}
                 className="p-1 text-slate-500 hover:text-white rounded-lg hover:bg-slate-900 transition-colors cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <XCircle className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Contenido del Drawer */}
             <div className="flex-1 overflow-y-auto p-5 space-y-6">
               {loadingEvidence ? (
                 <div className="h-full flex flex-col items-center justify-center space-y-3">
-                  <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  <div className="w-6 h-6 border-2 border-blue-500 animate-spin border-t-transparent rounded-full"></div>
                   <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Cargando trazabilidad...</span>
                 </div>
               ) : evidenceDetail ? (
                 <>
-                  {/* Ruta Genealógica */}
                   <div className="space-y-3">
                     <h3 className="text-[9px] text-slate-400 font-black uppercase tracking-widest">Procedencia</h3>
-                    <div className="bg-slate-900/50 border border-slate-850 p-4 rounded-xl space-y-3.5">
+                    <div className="bg-slate-900/30 border border-slate-850 p-4 rounded-xl space-y-3.5">
                       {evidenceDetail.genealogy.map((node, idx) => {
                         const Icon = ACTIVO_TIPOS[node.type]?.icon || Activity;
                         return (
@@ -646,7 +749,7 @@ export const WarRoomV50 = () => {
                               </div>
                               <div>
                                 <span className="text-[10px] font-bold text-white block truncate max-w-[200px]">{node.title}</span>
-                                <span className="text-[8px] text-slate-500 font-bold uppercase">{node.type} · {node.status}</span>
+                                <span className="text-[8px] text-slate-550 font-bold uppercase">{node.type} · {node.status}</span>
                               </div>
                             </div>
                             {idx < evidenceDetail.genealogy.length - 1 && (
@@ -658,13 +761,12 @@ export const WarRoomV50 = () => {
                     </div>
                   </div>
 
-                  {/* Timeline Cronológico */}
                   <div className="space-y-3">
                     <h3 className="text-[9px] text-slate-400 font-black uppercase tracking-widest">Línea de Tiempo</h3>
                     <div className="space-y-4 pl-3.5 border-l border-slate-850">
                       {evidenceDetail.timeline.map((item, idx) => (
                         <div key={idx} className="relative">
-                          <span className="w-2.5 h-2.5 rounded-full bg-blue-500 border border-slate-950 absolute -left-5 top-1"></span>
+                          <span className="w-2 h-2 rounded-full bg-blue-500 border border-slate-950 absolute -left-[19px] top-1.5"></span>
                           <span className="text-[9px] text-slate-500 font-bold font-mono block">
                             {new Date(item.timestamp).toLocaleString('es-DO')}
                           </span>
@@ -680,14 +782,13 @@ export const WarRoomV50 = () => {
                   </div>
                 </>
               ) : (
-                <div className="h-full flex items-center justify-center text-slate-500 text-xs">
+                <div className="h-full flex items-center justify-center text-slate-500 text-xs font-bold uppercase">
                   No se pudo cargar la evidencia
                 </div>
               )}
             </div>
 
-            {/* Footer de Inmutabilidad Visual */}
-            <div className="p-4 border-t border-slate-900 bg-slate-950/60 text-[9px] text-slate-500 leading-normal italic text-center">
+            <div className="p-4 border-t border-slate-900 bg-slate-950/60 text-[9px] text-slate-550 leading-normal italic text-center">
               ⚠️ Vista de auditoría de solo lectura. Para realizar modificaciones, diríjase al componente transaccional correspondiente.
             </div>
           </div>

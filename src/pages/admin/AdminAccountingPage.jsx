@@ -12,7 +12,8 @@ import {
   FileText, 
   RefreshCw, 
   Send,
-  Database
+  Database,
+  XCircle
 } from 'lucide-react';
 
 // ── Clientes Supabase ────────────────────────────────────────
@@ -71,6 +72,16 @@ export default function AdminAccountingPage() {
   const [amountToApply, setAmountToApply] = useState('');
   const [applyingPayment, setApplyingPayment] = useState(false);
   const [applyMsg, setApplyMsg] = useState('');
+
+  // Estado para el modal de Factura Grupal
+  const [showFacturaModal, setShowFacturaModal] = useState(false);
+  const [facturaBookingData, setFacturaBookingData] = useState(null);
+  const [facturaAbono, setFacturaAbono] = useState(0);
+  const [facturaSaldo, setFacturaSaldo] = useState(0);
+  const [facturaNum, setFacturaNum] = useState('');
+  const [facturaValidez, setFacturaValidez] = useState('');
+  const [facturaCondiciones, setFacturaCondiciones] = useState('Pago por transferencia bancaria');
+  const [modalErr, setModalErr] = useState('');
 
   // Cargar datos al iniciar
   useEffect(() => {
@@ -363,21 +374,110 @@ export default function AdminAccountingPage() {
     }
   };
 
-  // Generar documentos grupales
+  // Generar documentos grupales (Fase 3: ANT-FACTURA-GRUPAL-001)
   const triggerFacturaGrupal = async () => {
     if (!selectedBookingId) return;
     setGeneratingDoc(true);
     setDocMsg('');
+    setModalErr('');
     try {
-      const res = await fetch(N8N_FACTURA_GRUPAL, {
+      // 1. Obtener detalles de la reserva de Supabase
+      const { data: booking, error: errBk } = await supabase
+        .from('bookings')
+        .select('id, hotel_code, room_name, check_in, check_out, total_amount_dop, lead_guest_name, booking_reference')
+        .eq('id', selectedBookingId)
+        .single();
+        
+      if (errBk || !booking) throw new Error(errBk ? errBk.message : "No se encontró la reserva seleccionada.");
+
+      // 2. Obtener abonos aplicados de payment_ledger
+      const { data: ledgerData } = await supabase
+        .from('payment_ledger')
+        .select('amount_applied_dop')
+        .eq('booking_id', selectedBookingId);
+        
+      const sumAbonos = (ledgerData || []).reduce((sum, item) => sum + parseFloat(item.amount_applied_dop || 0), 0);
+      const saldoPendiente = parseFloat((booking.total_amount_dop || 0) - sumAbonos);
+
+      // Pre-llenar estados para el modal
+      setFacturaBookingData(booking);
+      setFacturaAbono(sumAbonos);
+      setFacturaSaldo(saldoPendiente);
+      setFacturaNum(`FAC-${booking.booking_reference || 'GRP'}-${Date.now().toString().slice(-4)}`);
+      
+      const defaultDate = new Date();
+      defaultDate.setDate(defaultDate.getDate() + 15);
+      setFacturaValidez(defaultDate.toISOString().split('T')[0]);
+      setFacturaCondiciones('Pago por transferencia bancaria (Aliun Travel). Enviar comprobante.');
+
+      setShowFacturaModal(true);
+    } catch (err) {
+      setDocMsg(`❌ Error al preparar factura: ${err.message}`);
+    } finally {
+      setGeneratingDoc(false);
+    }
+  };
+
+  const handleConfirmarFacturaGrupal = async () => {
+    if (!facturaBookingData) return;
+    
+    // VALIDACIÓN DE CONSISTENCIA
+    if (!facturaBookingData.booking_reference || !facturaBookingData.booking_reference.trim()) {
+      setModalErr("❌ Error de consistencia: La referencia de reserva (booking_reference) es obligatoria.");
+      return;
+    }
+
+    // VALIDACIONES FINANCIERAS
+    if (facturaAbono > facturaBookingData.total_amount_dop) {
+      setModalErr("❌ Error financiero: El abono acumulado no puede ser mayor que el monto total de la reserva.");
+      return;
+    }
+    if (facturaSaldo < 0) {
+      setModalErr("❌ Error financiero: El saldo pendiente no puede ser menor a 0.");
+      return;
+    }
+
+    setGeneratingDoc(true);
+    setDocMsg('');
+    try {
+      const trace_id = 'trace-' + Math.random().toString(36).substring(2, 15) + '-' + Math.random().toString(36).substring(2, 15);
+      
+      // Payload versionado 1.0 con trace_id
+      const payload = {
+        schema_version: "1.0",
+        trace_id: trace_id,
+        booking: {
+          id: facturaBookingData.id,
+          booking_reference: facturaBookingData.booking_reference,
+          hotel_code: facturaBookingData.hotel_code,
+          room_name: facturaBookingData.room_name,
+          check_in: facturaBookingData.check_in,
+          check_out: facturaBookingData.check_out,
+          lead_guest_name: facturaBookingData.lead_guest_name
+        },
+        payments: {
+          total_amount_dop: facturaBookingData.total_amount_dop,
+          abono_dop: facturaAbono,
+          saldo_pendiente_dop: facturaSaldo
+        },
+        invoice: {
+          factura_num: facturaNum,
+          validez: facturaValidez,
+          condiciones: facturaCondiciones
+        }
+      };
+
+      const res = await fetch('https://n8n-n8n.xaruuo.easypanel.host/webhook/factura-grupal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ booking_id: selectedBookingId, tipo: 'grupal' })
+        body: JSON.stringify(payload)
       });
+
       if (!res.ok) throw new Error(`Status ${res.status}`);
-      setDocMsg("✅ Factura grupal en proceso de generación.");
+      setDocMsg(`✅ Factura grupal ${facturaNum} enviada con éxito (Trace: ${trace_id}).`);
+      setShowFacturaModal(false);
     } catch (err) {
-      setDocMsg(`❌ Error: ${err.message}. Generado local de contingencia en descargas.`);
+      setDocMsg(`❌ Error al emitir factura: ${err.message}. Enrutando a contingencia local.`);
     } finally {
       setGeneratingDoc(false);
     }
@@ -972,7 +1072,117 @@ export default function AdminAccountingPage() {
         </Card>
       )}
 
+      {/* ── MODAL INTERACTIVO DE CONFIRMACIÓN DE FACTURA GRUPAL (Fase 3) ── */}
+      {showFacturaModal && facturaBookingData && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-205">
+            <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-950/50">
+              <div>
+                <h3 className="text-xs font-black text-white uppercase tracking-wider">Confirmar Emisión de Factura Grupal</h3>
+                <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Integración Financiera Canónica</p>
+              </div>
+              <button 
+                onClick={() => setShowFacturaModal(false)}
+                className="text-slate-500 hover:text-white"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
 
+            <div className="p-5 space-y-4">
+              {modalErr && (
+                <div className="bg-rose-500/10 border border-rose-500/20 text-rose-455 p-3 rounded-xl text-[10px] font-black uppercase tracking-wide">
+                  {modalErr}
+                </div>
+              )}
+
+              {/* Detalle Read-Only */}
+              <div className="grid grid-cols-2 gap-3.5 bg-slate-950/40 p-4 border border-slate-850 rounded-xl text-[10px] font-semibold text-slate-355">
+                <div>
+                  <span className="text-[8px] text-slate-550 block font-bold uppercase tracking-widest mb-0.5">Hotel / Excursión</span>
+                  <span className="text-white">{facturaBookingData.hotel_code || 'N/A'}</span>
+                </div>
+                <div>
+                  <span className="text-[8px] text-slate-550 block font-bold uppercase tracking-widest mb-0.5">Huésped Principal</span>
+                  <span className="text-white">{facturaBookingData.lead_guest_name || 'N/A'}</span>
+                </div>
+                <div>
+                  <span className="text-[8px] text-slate-550 block font-bold uppercase tracking-widest mb-0.5">Check-In / Check-Out</span>
+                  <span className="text-white">{facturaBookingData.check_in} al {facturaBookingData.check_out}</span>
+                </div>
+                <div>
+                  <span className="text-[8px] text-slate-550 block font-bold uppercase tracking-widest mb-0.5">Referencia de Reserva</span>
+                  <span className="text-white">{facturaBookingData.booking_reference || 'N/A'}</span>
+                </div>
+                <div className="col-span-2 pt-3 border-t border-slate-850/40 grid grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <span className="text-[8px] text-slate-550 block font-bold uppercase tracking-widest mb-0.5">Total (DOP)</span>
+                    <span className="font-mono text-white font-black">RD$ {new Intl.NumberFormat('en-US').format(facturaBookingData.total_amount_dop || 0)}</span>
+                  </div>
+                  <div>
+                    <span className="text-[8px] text-slate-550 block font-bold uppercase tracking-widest mb-0.5">Abono (DOP)</span>
+                    <span className="font-mono text-emerald-450 font-black">RD$ {new Intl.NumberFormat('en-US').format(facturaAbono)}</span>
+                  </div>
+                  <div>
+                    <span className="text-[8px] text-slate-550 block font-bold uppercase tracking-widest mb-0.5">Saldo (DOP)</span>
+                    <span className="font-mono text-amber-450 font-black">RD$ {new Intl.NumberFormat('en-US').format(facturaSaldo)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Inputs Editables */}
+              <div className="space-y-3.5">
+                <div>
+                  <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest block mb-1">Número de Factura Sugerido</label>
+                  <input
+                    type="text"
+                    value={facturaNum}
+                    onChange={e => setFacturaNum(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-850 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-yellow-600/40 font-mono font-bold"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest block mb-1">Fecha Límite Validez</label>
+                    <input
+                      type="date"
+                      value={facturaValidez}
+                      onChange={e => setFacturaValidez(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-850 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-yellow-600/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest block mb-1">Términos y Condiciones</label>
+                    <input
+                      type="text"
+                      value={facturaCondiciones}
+                      onChange={e => setFacturaCondiciones(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-850 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-yellow-600/40"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-slate-800 flex justify-end gap-3 bg-slate-950/50">
+              <button
+                onClick={() => setShowFacturaModal(false)}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider text-slate-400 hover:text-white transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmarFacturaGrupal}
+                disabled={generatingDoc}
+                className="px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider bg-yellow-500 text-slate-950 hover:bg-yellow-400 transition"
+              >
+                {generatingDoc ? 'Procesando...' : 'Confirmar e Iniciar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

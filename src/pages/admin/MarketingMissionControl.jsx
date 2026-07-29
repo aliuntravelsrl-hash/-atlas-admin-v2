@@ -1,10 +1,10 @@
 import { useMarketingKPIs } from '../../hooks/marketing/useMarketingKPIs'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
-const NAVY = '#0A1628'
 const GOLD = '#B8860B'
 const TEAL = '#2DD4BF'
 const GREEN = '#10B981'
+const RED = '#EF4444'
 const GRAY = '#475569'
 
 function KPICard({ label, value, sub, color = GOLD }) {
@@ -27,7 +27,7 @@ function SwarmStatus({ swarm }) {
   ]
   return (
     <div style={{ background: '#111827', border: `1px solid ${GRAY}33`, borderRadius: 12, padding: 20 }}>
-      <p style={{ color: GOLD, fontSize: 12, fontWeight: 700, textTransform: 'uppercase', marginBottom: 12 }}>Swarm F3</p>
+      <p style={{ color: GOLD, fontSize: 12, fontWeight: 700, textTransform: 'uppercase', marginBottom: 12 }}>Estado Swarm F3</p>
       {agents.map(({ key, label }) => {
         const a = swarm?.find(s => s.nombre_agente === key)
         const online = a?.estado === 'online'
@@ -75,20 +75,79 @@ export default function MarketingMissionControl() {
       {/* Header */}
       <div style={{ marginBottom: 28, borderBottom: `1px solid ${GOLD}44`, paddingBottom: 16 }}>
         <h1 style={{ color: '#F8FAFC', fontSize: 22, fontWeight: 700, margin: 0 }}>📢 Marketing Mission Control</h1>
-        <p style={{ color: GRAY, fontSize: 13, marginTop: 4 }}>F3-Atracción · datos en tiempo real desde Ariadne Data</p>
+        <p style={{ color: GRAY, fontSize: 13, marginTop: 4 }}>F3-Atracción · Datos unificados DOP/USD en tiempo real</p>
       </div>
 
-      {/* KPIs row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24 }}>
-        <KPICard label="Leads CRM" value={kpis.leads_total || '—'} sub="Todos los stages" />
-        <KPICard label="Cotizados" value={kpis.cotizados || '—'} sub="Stage cotizado" color={TEAL} />
-        <KPICard label="Confirmadas" value={kpis.confirmadas || '—'} sub="Reservas confirmadas" color={GREEN} />
-        <KPICard label="Conversión" value={kpis.conversion_pct ? kpis.conversion_pct + '%' : '—'} sub="Global del funnel" />
-        <KPICard label="Reservas activas" value={kpis.reservas_activas || '—'} sub="Últimas 10" color={TEAL} />
-        <KPICard label="Chats Hermes" value={kpis.chats_total || '—'} sub={`Score prom: ${kpis.avg_rag_score}`} />
+      {/* ── SECCIÓN 1: KPIs y Finanzas (F3-MKT-UI-001) ── */}
+      <div style={{ marginBottom: 24 }}>
+        <p style={{ color: TEAL, fontSize: 12, fontWeight: 700, textTransform: 'uppercase', trackingSpacing: 2, marginBottom: 12 }}>
+          📊 KPIs y Métricas Financieras
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
+          <KPICard label="Leads CRM" value={kpis.leads_total || '—'} sub="Todos los stages del funnel" />
+          <KPICard label="Excursiones" value={kpis.excursions_count || '0'} sub="Reservas excursiones" color={TEAL} />
+          <KPICard label="Monto Facturado (USD)" value={`$${new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(kpis.revenue_usd || 0)}`} sub="Total reservas confirmadas" color={GREEN} />
+          <KPICard label="Equivalente (DOP)" value={`RD$ ${new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(kpis.revenue_dop || 0)}`} sub={`Tasa de cambio: RD$ ${kpis.exchange_rate}`} color={GREEN} />
+          <KPICard label="Conversión Global" value={kpis.conversion_pct ? kpis.conversion_pct + '%' : '—'} sub="Porcentaje de éxito" />
+        </div>
       </div>
 
-      {/* Charts + Swarm */}
+      {/* ── SECCIÓN 2: Salud e Infraestructura ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 20, marginBottom: 24 }}>
+        {/* Alertas OpenRouter */}
+        <div style={{ background: '#111827', border: `1px solid ${GRAY}33`, borderRadius: 12, padding: 20 }}>
+          <p style={{ color: GOLD, fontSize: 12, fontWeight: 700, textTransform: 'uppercase', marginBottom: 14 }}>Alertas OpenRouter & IA</p>
+          {data.openrouter && data.openrouter.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {data.openrouter.map((log, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'start', gap: 10, fontSize: 12, background: `${RED}11`, border: `1px solid ${RED}33`, padding: 10, borderRadius: 8 }}>
+                  <span style={{ color: RED, fontWeight: 700 }}>⚠️</span>
+                  <div>
+                    <span style={{ color: '#F8FAFC', fontWeight: 650, block: 'true' }}>{log.mensaje}</span>
+                    <span style={{ color: GRAY, fontSize: 10, display: 'block', marginTop: 3 }}>
+                      {new Date(log.created_at).toLocaleString('es-DO')}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: GREEN, fontSize: 13, background: `${GREEN}11`, border: `1px solid ${GREEN}33`, padding: 12, borderRadius: 8 }}>
+              <span>🟢</span>
+              <span>Créditos y conexión de OpenRouter estables.</span>
+            </div>
+          )}
+        </div>
+
+        {/* Tareas del Swarm de Marketing / Comercial */}
+        <div style={{ background: '#111827', border: `1px solid ${GRAY}33`, borderRadius: 12, padding: 20 }}>
+          <p style={{ color: GOLD, fontSize: 12, fontWeight: 700, textTransform: 'uppercase', marginBottom: 14 }}>Tareas Swarm (Marketing / Comercial)</p>
+          {data.tasks && data.tasks.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {data.tasks.map((task, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, background: '#1F2937/40', padding: 8, borderRadius: 8, border: `1px solid ${GRAY}22` }}>
+                  <div>
+                    <span style={{ color: GOLD, fontWeight: 700, marginRight: 6 }}>{task.codigo}</span>
+                    <span style={{ color: '#E2E8F0' }}>{task.titulo}</span>
+                  </div>
+                  <span style={{ 
+                    fontSize: 9, 
+                    fontWeight: 'bold', 
+                    padding: '2px 5px', 
+                    borderRadius: 4, 
+                    background: task.estado === 'completado' ? `${GREEN}22` : `${GOLD}22`,
+                    color: task.estado === 'completado' ? GREEN : GOLD
+                  }}>{task.estado.toUpperCase()}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p style={{ color: GRAY, fontSize: 13 }}>Sin tareas recientes asignadas.</p>
+          )}
+        </div>
+      </div>
+
+      {/* ── SECCIÓN 3: Gráficos de Conversión y Canales ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 280px', gap: 20 }}>
         {/* Funnel */}
         <div style={{ background: '#111827', border: `1px solid ${GRAY}33`, borderRadius: 12, padding: 20 }}>
@@ -116,7 +175,7 @@ export default function MarketingMissionControl() {
           </ResponsiveContainer>
         </div>
 
-        {/* Swarm */}
+        {/* Swarm Status */}
         <SwarmStatus swarm={data?.swarm} />
       </div>
 

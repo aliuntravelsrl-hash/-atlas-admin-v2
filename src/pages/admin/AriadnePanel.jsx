@@ -11,17 +11,36 @@ export default function AriadnePanel() {
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(null)
 
+  // Nuevos estados para telemetría real (F3-MKT-UI-001)
+  const [excCount, setExcCount] = useState(0)
+  const [vpsData, setVpsData] = useState([])
+  const [pendingTasks, setPendingTasks] = useState([])
+  const [recentLogs, setRecentLogs] = useState([])
+  const [exchangeRate, setExchangeRate] = useState(58.5)
+
   useEffect(() => {
     async function load() {
       try {
-        const [funnel, staleRes, hotelRes] = await Promise.all([
+        const [funnel, staleRes, hotelRes, excBks, vpsMetrics, tasks, logs, rates] = await Promise.all([
           supabase.rpc('funnel_conversion'),
           supabase.rpc('stale_leads'),
           supabase.rpc('revenue_by_hotel'),
+          supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('booking_type', 'excursion'),
+          supabase.from('vps_metrics').select('vps_id, mem_pct, timestamp').order('timestamp', { ascending: false }).limit(6),
+          supabase.from('atlas_tasks').select('*').eq('estado', 'pendiente').order('prioridad', { ascending: false }).limit(5),
+          supabase.from('logs_operativos').select('*').order('created_at', { ascending: false }).limit(5),
+          supabase.from('exchange_rates').select('rate_sell').limit(1)
         ])
         setKpis(funnel.data || {})
         setStale(staleRes.data || [])
         setHotels((hotelRes.data || []).slice(0, 8))
+        setExcCount(excBks.count || 0)
+        setVpsData(vpsMetrics.data || [])
+        setPendingTasks(tasks.data || [])
+        setRecentLogs(logs.data || [])
+        if (rates.data && rates.data.length > 0) {
+          setExchangeRate(parseFloat(rates.data[0].rate_sell))
+        }
       } catch(e) {
         setError(e.message)
       } finally {
@@ -50,15 +69,16 @@ export default function AriadnePanel() {
     <div style={{ padding:24, maxWidth:1100 }}>
       <div style={{ marginBottom:28, borderBottom:`1px solid ${TEAL}44`, paddingBottom:16 }}>
         <h1 style={{ color:'#F8FAFC', fontSize:22, fontWeight:700, margin:0 }}>🧠 Ariadne Data — Panel Analítico</h1>
-        <p style={{ color:GRAY, fontSize:13, marginTop:4 }}>F2-Backend Core · RPCs en tiempo real</p>
+        <p style={{ color:GRAY, fontSize:13, marginTop:4 }}>F2-Backend Core · RPCs y Telemetría en caliente</p>
       </div>
 
+      {/* Grid de KPIs principales */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:16, marginBottom:24 }}>
         {[
           { label:'Leads Totales',           value: kpis?.total || '—',                                              color:GOLD  },
-          { label:'Nuevo → Cotizado',         value: rates.nuevo_to_cotizado_pct  ? rates.nuevo_to_cotizado_pct+'%'  : '—', color:TEAL  },
-          { label:'Cotizado → Confirmado',    value: rates.cotizado_to_confirmada_pct ? rates.cotizado_to_confirmada_pct+'%' : '—', color:GREEN },
           { label:'Conversión Global',        value: rates.overall_conversion_pct ? rates.overall_conversion_pct+'%' : '—', color:GOLD  },
+          { label:'Reservas Excursión',       value: excCount,                                                       color:TEAL  },
+          { label:'Tasa de Cambio (USD/DOP)', value: `RD$ ${exchangeRate}`,                                           color:GREEN },
           { label:'Leads Estancados (+7d)',   value: stale.length, color: stale.length > 0 ? RED : GREEN },
         ].map(({ label, value, color }) => (
           <div key={label} style={{ background:'#111827', border:`1px solid ${GRAY}33`, borderRadius:12, padding:'18px 20px' }}>
@@ -68,7 +88,8 @@ export default function AriadnePanel() {
         ))}
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20, marginBottom:20 }}>
+      {/* Gráficos principales */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(340px, 1fr))', gap:20, marginBottom:20 }}>
         <div style={{ background:'#111827', border:`1px solid ${GRAY}33`, borderRadius:12, padding:20 }}>
           <p style={{ color:TEAL, fontSize:12, fontWeight:700, textTransform:'uppercase', marginBottom:14 }}>Distribución del Funnel</p>
           {stages.length > 0 ? (
@@ -98,6 +119,84 @@ export default function AriadnePanel() {
         </div>
       </div>
 
+      {/* Sección 3: Telemetría VPS y Tareas del Swarm */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(340px, 1fr))', gap:20, marginBottom:20 }}>
+        {/* Tendencias de Servidores / VPS */}
+        <div style={{ background:'#111827', border:`1px solid ${GRAY}33`, borderRadius:12, padding:20 }}>
+          <p style={{ color:TEAL, fontSize:12, fontWeight:700, textTransform:'uppercase', marginBottom:14 }}>Salud de Servidores (VPS)</p>
+          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+            {vpsData.length > 0 ? vpsData.map((vps, i) => (
+              <div key={i} style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                <div style={{ display:'flex', justifyContent:'between', fontSize:11, color:'#E2E8F0' }}>
+                  <span style={{ fontWeight:700 }}>{vps.vps_id}</span>
+                  <span style={{ color:GRAY, marginLeft:'auto', fontFamily:'monospace' }}>{vps.mem_pct}% RAM</span>
+                </div>
+                <div style={{ width:'100%', height:6, background:'#1F2937', borderRadius:3, overflow:'hidden' }}>
+                  <div style={{ 
+                    height:'100%', 
+                    width:`${vps.mem_pct}%`, 
+                    background: vps.mem_pct > 80 ? RED : vps.mem_pct > 60 ? GOLD : GREEN,
+                    borderRadius:3 
+                  }}></div>
+                </div>
+              </div>
+            )) : <p style={{ color:GRAY, fontSize:13 }}>Sin registros de VPS recientes</p>}
+          </div>
+        </div>
+
+        {/* Tareas Pendientes del Swarm */}
+        <div style={{ background:'#111827', border:`1px solid ${GRAY}33`, borderRadius:12, padding:20 }}>
+          <p style={{ color:TEAL, fontSize:12, fontWeight:700, textTransform:'uppercase', marginBottom:14 }}>Tareas Pendientes (Swarm)</p>
+          {pendingTasks.length > 0 ? (
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              {pendingTasks.map((task, i) => (
+                <div key={i} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:12, background:'#1F2937/40', padding:'8px 10px', borderRadius:8, border:`1px solid ${GRAY}22` }}>
+                  <div>
+                    <span style={{ color:GOLD, fontWeight:700, marginRight:6 }}>{task.codigo}</span>
+                    <span style={{ color:'#E2E8F0' }}>{task.titulo}</span>
+                  </div>
+                  <span style={{ 
+                    fontSize:9, 
+                    fontWeight:'bold', 
+                    padding:'2px 6px', 
+                    borderRadius:4, 
+                    background: task.prioridad === 'alta' ? `${RED}22` : `${GOLD}22`,
+                    color: task.prioridad === 'alta' ? RED : GOLD
+                  }}>{task.prioridad.toUpperCase()}</span>
+                </div>
+              ))}
+            </div>
+          ) : <p style={{ color:GRAY, fontSize:13 }}>Sin tareas pendientes asignadas</p>}
+        </div>
+      </div>
+
+      {/* Logs Operativos Recientes */}
+      <div style={{ background:'#111827', border:`1px solid ${GRAY}33`, borderRadius:12, padding:20, marginBottom:20 }}>
+        <p style={{ color:TEAL, fontSize:12, fontWeight:700, textTransform:'uppercase', marginBottom:14 }}>Logs de Operación Recientes</p>
+        {recentLogs.length > 0 ? (
+          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+            {recentLogs.map((log, i) => (
+              <div key={i} style={{ display:'flex', alignItems:'start', gap:12, fontSize:12, borderBottom:`1px solid ${GRAY}22`, paddingBottom:8 }}>
+                <span style={{ color:GRAY, fontFamily:'monospace', fontSize:11 }}>
+                  {new Date(log.created_at).toLocaleTimeString('es-DO')}
+                </span>
+                <span style={{ 
+                  fontSize:9, 
+                  fontWeight:800, 
+                  padding:'1px 5px', 
+                  borderRadius:3, 
+                  background: log.nivel === 'ERROR' || log.nivel === 'CRITICAL' ? `${RED}22` : log.nivel === 'WARNING' ? `${GOLD}22` : '#1F2937',
+                  color: log.nivel === 'ERROR' || log.nivel === 'CRITICAL' ? RED : log.nivel === 'WARNING' ? GOLD : '#94A3B8'
+                }}>{log.nivel}</span>
+                <span style={{ color:'#E2E8F0', flex:1 }}>{log.mensaje}</span>
+                <span style={{ color:GOLD, fontFamily:'monospace', fontSize:11 }}>{log.origen}</span>
+              </div>
+            ))}
+          </div>
+        ) : <p style={{ color:GRAY, fontSize:13 }}>Sin logs operativos registrados</p>}
+      </div>
+
+      {/* Leads Estancados */}
       {stale.length > 0 && (
         <div style={{ background:'#111827', border:`1px solid ${RED}44`, borderRadius:12, padding:20 }}>
           <p style={{ color:RED, fontSize:12, fontWeight:700, textTransform:'uppercase', marginBottom:12 }}>
