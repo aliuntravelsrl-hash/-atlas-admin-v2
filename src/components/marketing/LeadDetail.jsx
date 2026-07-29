@@ -10,14 +10,24 @@ const ACTIVITY_ICONS = {
   sistema: { char: '🤖', color: 'bg-slate-700/30 text-slate-400 border-slate-700/40' },
 };
 
-const STAGES = [
-  { id: 'nuevo', name: 'Nuevo' },
-  { id: 'contactado', name: 'Contactado' },
-  { id: 'cotizacion_enviada', name: 'Cotización Enviada' },
-  { id: 'negociando', name: 'Negociando' },
-  { id: 'deposito_recibido', name: 'Depósito Recibido' },
-  { id: 'confirmada', name: 'Confirmada' },
-  { id: 'perdido', name: 'Perdido' },
+const STAGE_OPTIONS = [
+  // CAPTACIÓN
+  { value: 'nuevo',                label: 'Entrante',         group: 'CAPTACIÓN'  },
+  { value: 'calificado',           label: 'Calificado',       group: 'CAPTACIÓN'  },
+  // COMERCIAL
+  { value: 'cotizacion_enviada',   label: 'Cotizado',         group: 'COMERCIAL'  },
+  { value: 'factura_enviada',      label: 'Factura Enviada',  group: 'COMERCIAL'  },
+  { value: 'negociando',           label: 'Negociando',       group: 'COMERCIAL'  },
+  // FINANCIERO
+  { value: 'validacion_pago',      label: 'Validando Pago',   group: 'FINANCIERO' },
+  { value: 'abono_recibido',       label: 'Abono Recibido',   group: 'FINANCIERO' },
+  { value: 'saldo_pendiente',      label: 'Saldo Pendiente',  group: 'FINANCIERO' },
+  // OPERATIVO
+  { value: 'en_fulfillment',       label: 'En Fulfillment',   group: 'OPERATIVO'  },
+  { value: 'voucher_enviado',      label: 'Voucher Enviado',  group: 'OPERATIVO'  },
+  { value: 'completado',           label: 'Completado',       group: 'OPERATIVO'  },
+  // CIERRE
+  { value: 'perdido',              label: 'Perdido',          group: 'CIERRE'     },
 ];
 
 export const LeadDetail = ({ leadId, onClose, onRefresh }) => {
@@ -203,8 +213,8 @@ export const LeadDetail = ({ leadId, onClose, onRefresh }) => {
               onChange={(e) => handleStageChange(e.target.value)}
               className="bg-slate-950 border border-slate-800 rounded-lg text-xs font-extrabold text-blue-400 px-2 py-0.5 focus:outline-none cursor-pointer"
             >
-              {STAGES.map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
+              {STAGE_OPTIONS.map(s => (
+                <option key={s.value} value={s.value}>{s.label} ({s.group})</option>
               ))}
             </select>
           </div>
@@ -316,6 +326,76 @@ export const LeadDetail = ({ leadId, onClose, onRefresh }) => {
                   </p>
                 </div>
               )}
+            </div>
+
+            {/* Expediente de Reserva */}
+            <div className="bg-slate-950/60 border border-slate-850 rounded-2xl p-4 space-y-3.5 text-xs">
+              <h3 className="font-extrabold text-slate-400 uppercase tracking-widest text-[9px] border-b border-slate-900 pb-1.5">Expediente de Reserva</h3>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="text-slate-500 block font-bold mb-0.5">Destino:</span>
+                  <span className="text-white font-semibold">{lead.destination || 'No definido'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block font-bold mb-0.5">Operador Turístico:</span>
+                  <span className="text-white font-semibold">{lead.operator_name || 'No definido'}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="text-slate-500 block font-bold mb-0.5">No. Habitaciones:</span>
+                  <span className="text-white font-semibold font-mono">{lead.num_rooms || '—'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block font-bold mb-0.5">No. Tour:</span>
+                  <span className="text-white font-semibold font-mono">{lead.tour_number || '—'}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="text-slate-500 block font-bold mb-0.5">No. Vuelo:</span>
+                  <span className="text-white font-semibold font-mono">{lead.flight_number || '—'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block font-bold mb-0.5">Método de Pago:</span>
+                  <span className="text-white font-semibold">{lead.payment_method_pref || '—'}</span>
+                </div>
+              </div>
+
+              {lead.stage === 'perdido' && lead.loss_reason && (
+                <div>
+                  <span className="text-rose-500 block font-bold mb-0.5">Razón de Pérdida:</span>
+                  <span className="text-slate-200 font-semibold">{lead.loss_reason}</span>
+                </div>
+              )}
+
+              {/* Timestamps Financieros */}
+              <div className="pt-2 border-t border-slate-900/50 space-y-2">
+                <span className="font-extrabold text-slate-500 uppercase tracking-widest text-[8px] block">Timestamps Financieros</span>
+                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                  <div>
+                    <span className="text-slate-550 block font-bold">Abono Recibido:</span>
+                    <span className="text-slate-350 font-mono">
+                      {lead.abono_recibido_at ? new Date(lead.abono_recibido_at).toLocaleString('es-DO') : 'Pendiente'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-550 block font-bold">Saldo Cobrado:</span>
+                    <span className="text-slate-350 font-mono">
+                      {lead.saldo_cobrado_at ? new Date(lead.saldo_cobrado_at).toLocaleString('es-DO') : 'Pendiente'}
+                    </span>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-slate-550 block font-bold">Voucher Enviado:</span>
+                    <span className="text-slate-350 font-mono">
+                      {lead.voucher_enviado_at ? new Date(lead.voucher_enviado_at).toLocaleString('es-DO') : 'Pendiente'}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Formulario Nueva Actividad */}

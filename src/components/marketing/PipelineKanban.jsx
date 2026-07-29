@@ -1,16 +1,53 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import LeadDetail from './LeadDetail';
 
-const STAGES = [
-  { id: 'nuevo', name: 'Nuevo', color: 'border-blue-500/30 text-blue-400 bg-blue-500/5', dot: 'bg-blue-500' },
-  { id: 'contactado', name: 'Contactado', color: 'border-amber-500/30 text-amber-400 bg-amber-500/5', dot: 'bg-amber-500' },
-  { id: 'cotizacion_enviada', name: 'Cotización Enviada', color: 'border-violet-500/30 text-violet-400 bg-violet-500/5', dot: 'bg-violet-500' },
-  { id: 'negociando', name: 'Negociando', color: 'border-orange-500/30 text-orange-400 bg-orange-500/5', dot: 'bg-orange-500' },
-  { id: 'deposito_recibido', name: 'Depósito Recibido', color: 'border-pink-500/30 text-pink-400 bg-pink-500/5', dot: 'bg-pink-500' },
-  { id: 'confirmada', name: 'Confirmada', color: 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5', dot: 'bg-emerald-500' },
-  { id: 'perdido', name: 'Perdido', color: 'border-slate-700 text-slate-400 bg-slate-900/10', dot: 'bg-slate-500' },
+const TABS_CONFIG = [
+  { id: 'captacion', label: 'Captación 📥', activeColor: 'border-blue-500 text-blue-400 bg-blue-500/5 hover:text-blue-300' },
+  { id: 'comercial', label: 'Comercial 💼', activeColor: 'border-cyan-500 text-cyan-400 bg-cyan-500/5 hover:text-cyan-300' },
+  { id: 'financiero', label: 'Financiero 💳', activeColor: 'border-pink-500 text-pink-400 bg-pink-500/5 hover:text-pink-300' },
+  { id: 'operativo', label: 'Operativo ⚙️', activeColor: 'border-violet-500 text-violet-400 bg-violet-500/5 hover:text-violet-300' },
+  { id: 'perdido', label: 'Perdidos ❌', activeColor: 'border-rose-500 text-rose-400 bg-rose-500/5 hover:text-rose-355' }
 ];
+
+const STAGE_CONFIG = {
+  captacion: {
+    entrante:   { label: 'Entrante', stages: ['nuevo'],               webhook: null,  color: 'border-slate-800/80 bg-slate-900/10 text-slate-400' },
+    calificado: { label: 'Calificado', stages: ['calificado','contactado'], webhook: 'WH-1', color: 'border-blue-500/20 bg-blue-500/5 text-blue-400' }
+  },
+  comercial: {
+    cotizado:   { label: 'Cotizado', stages: ['cotizacion_enviada','factura_enviada'], webhook: 'WH-2', color: 'border-cyan-500/20 bg-cyan-500/5 text-cyan-400' },
+    negociando: { label: 'Negociando', stages: ['negociando'],           webhook: 'WH-3', color: 'border-yellow-500/20 bg-yellow-500/5 text-yellow-400' }
+  },
+  financiero: {
+    abono:      { label: 'Abono Recibido', stages: ['abono_recibido','deposito_recibido','validacion_pago'], webhook: null,  color: 'border-pink-500/20 bg-pink-500/5 text-pink-400' },
+    saldo:      { label: 'Saldo Pendiente', stages: ['saldo_pendiente'],      webhook: 'WH-4', color: 'border-orange-500/20 bg-orange-500/5 text-orange-400' }
+  },
+  operativo: {
+    fulfillment:{ label: 'En Fulfillment', stages: ['en_fulfillment','voucher_enviado'],   webhook: 'WH-5', color: 'border-violet-500/20 bg-violet-500/5 text-violet-400' },
+    completado: { label: 'Completado', stages: ['completado'],           webhook: 'WH-6', color: 'border-emerald-500/20 bg-emerald-500/5 text-emerald-400' }
+  },
+  perdido: {
+    perdido:    { label: 'Perdido', stages: ['perdido'],               webhook: null,  color: 'border-rose-500/20 bg-rose-500/5 text-rose-400' }
+  }
+};
+
+const STAGE_LEVELS = {
+  nuevo: 1,
+  calificado: 1,
+  contactado: 1,
+  cotizacion_enviada: 2,
+  factura_enviada: 2,
+  negociando: 2,
+  validacion_pago: 3,
+  abono_recibido: 3,
+  deposito_recibido: 3,
+  saldo_pendiente: 3,
+  en_fulfillment: 4,
+  voucher_enviado: 4,
+  completado: 4,
+  perdido: 5
+};
 
 const SOURCE_BADGES = {
   widget: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/20',
@@ -20,13 +57,27 @@ const SOURCE_BADGES = {
   manual: 'bg-purple-500/15 text-purple-400 border-purple-500/20',
 };
 
+const isSkippingStages = (currentStage, targetStage) => {
+  const currentLevel = STAGE_LEVELS[currentStage] || 1;
+  const targetLevel = STAGE_LEVELS[targetStage] || 1;
+
+  if (targetLevel <= currentLevel) return false;
+  if (targetStage === 'perdido') return false;
+  if (targetLevel - currentLevel > 1) return true;
+  return false;
+};
+
 export const PipelineKanban = () => {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('captacion');
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [draggedLeadId, setDraggedLeadId] = useState(null);
   const [dragOverStage, setDragOverStage] = useState(null);
   
+  // Custom Toast State
+  const [toast, setToast] = useState(null);
+
   // Filtros
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSource, setSelectedSource] = useState('all');
@@ -45,7 +96,6 @@ export const PipelineKanban = () => {
   const [hotels, setHotels] = useState([]);
 
   useEffect(() => {
-    // Capturar parámetro search de la URL para filtro directo de CRM
     const params = new URLSearchParams(window.location.search);
     const searchVal = params.get('search');
     if (searchVal) {
@@ -55,18 +105,31 @@ export const PipelineKanban = () => {
     fetchHotels();
   }, []);
 
+  const showNotification = (message, type = 'error') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 5000);
+  };
+
   const fetchLeads = async () => {
     setLoading(true);
     try {
       const { data, error } = await supabase
         .from('crm_leads')
-        .select('*')
-        .order('updated_at', { ascending: false });
+        .select(`
+          id, full_name, phone, stage,
+          hotel_interest, check_in, check_out,
+          adults, children, destination,
+          budget_range, source, created_at, stage_updated_at,
+          score, score_label,
+          bookings(id, booking_reference, total_amount_usd, total_amount_dop)
+        `)
+        .order('stage_updated_at', { ascending: false });
 
       if (error) throw error;
       setLeads(data || []);
     } catch (err) {
       console.error('Error fetching leads:', err);
+      showNotification('Error al cargar los leads desde Supabase');
     } finally {
       setLoading(false);
     }
@@ -84,6 +147,18 @@ export const PipelineKanban = () => {
     }
   };
 
+  // Parsea budget_range a número para acumular en DOP
+  const parseBudget = (lead) => {
+    if (lead.budget_range) {
+      const cleanStr = String(lead.budget_range).replace(/[^0-9.]/g, '');
+      const val = parseFloat(cleanStr);
+      if (!isNaN(val) && val > 0) {
+        return val;
+      }
+    }
+    return parseFloat(lead.bookings?.[0]?.total_amount_dop || 0);
+  };
+
   // Drag and Drop Handlers
   const handleDragStart = (e, leadId) => {
     setDraggedLeadId(leadId);
@@ -95,52 +170,53 @@ export const PipelineKanban = () => {
     setDragOverStage(stageId);
   };
 
-  const handleDrop = async (e, stageId) => {
+  const handleDrop = async (e, targetStage) => {
     e.preventDefault();
     const leadId = e.dataTransfer.getData('text/plain') || draggedLeadId;
     if (!leadId) return;
 
-    // Guarda de seguridad financiera contable (Fase 4.0)
-    if (stageId === 'deposito_recibido') {
+    const lead = leads.find(l => l.id === leadId);
+    if (!lead) return;
+
+    const currentStage = lead.stage;
+
+    // Regla 1: Bloqueo de saltos de etapas comerciales
+    if (isSkippingStages(currentStage, targetStage)) {
+      showNotification('Transición Bloqueada: No puedes saltar grupos de etapas comerciales.');
+      setDragOverStage(null);
+      setDraggedLeadId(null);
+      return;
+    }
+
+    // Regla 2: ABONO RECIBIDO y etapas financieras afines requieren payment_ledger
+    if (['abono_recibido', 'deposito_recibido', 'validacion_pago'].includes(targetStage)) {
+      const bookingId = lead.bookings?.[0]?.id;
+      if (!bookingId) {
+        showNotification('Transición Bloqueada: El lead no tiene ninguna reserva vinculada.');
+        setDragOverStage(null);
+        setDraggedLeadId(null);
+        return;
+      }
+
       try {
         setLoading(true);
-        // A. Buscar reserva asociada al lead
-        const { data: bookingData, error: errBk } = await supabase
-          .from('bookings')
-          .select('id, booking_reference')
-          .eq('lead_id', leadId)
-          .limit(1);
-
-        if (errBk) throw errBk;
-
-        if (!bookingData || bookingData.length === 0) {
-          alert('❌ Transición Bloqueada: El lead no posee ninguna reserva asociada en la base de datos de producción.');
-          setDragOverStage(null);
-          setDraggedLeadId(null);
-          fetchLeads();
-          return;
-        }
-
-        // B. Verificar existencia de abonos conciliados en ledger para esa reserva
-        const { data: ledgerData, error: errLedger } = await supabase
+        const { count, error } = await supabase
           .from('payment_ledger')
-          .select('id, amount_applied_usd')
-          .eq('booking_id', bookingData[0].id)
-          .limit(1);
+          .select('id', { count: 'exact', head: true })
+          .eq('booking_id', bookingId);
 
-        if (errLedger) throw errLedger;
+        if (error) throw error;
 
-        if (!ledgerData || ledgerData.length === 0) {
-          alert(`❌ Transición Bloqueada: La reserva #${bookingData[0].booking_reference} no registra depósitos conciliados y aprobados en el ledger contable.`);
+        if (!count || count === 0) {
+          showNotification('Transición Bloqueada: No se registran abonos conciliados en el ledger.');
           setDragOverStage(null);
           setDraggedLeadId(null);
           fetchLeads();
           return;
         }
-
       } catch (err) {
-        console.error('Error al validar guarda financiera:', err.message);
-        alert('❌ Error de comunicación con la base de datos de Supabase.');
+        console.error('Error validating payment ledger:', err);
+        showNotification('Error al comunicar con el ledger contable.');
         setDragOverStage(null);
         setDraggedLeadId(null);
         fetchLeads();
@@ -150,10 +226,10 @@ export const PipelineKanban = () => {
       }
     }
 
-    // Actualizar UI localmente de forma optimista
+    // Actualización local optimista
     const updatedLeads = leads.map(l => {
       if (l.id === leadId) {
-        return { ...l, stage: stageId, updated_at: new Date().toISOString() };
+        return { ...l, stage: targetStage, stage_updated_at: new Date().toISOString() };
       }
       return l;
     });
@@ -161,39 +237,37 @@ export const PipelineKanban = () => {
     setDragOverStage(null);
     setDraggedLeadId(null);
 
-    // Guardar en Supabase con fallback a actualización directa
+    // Persistir en base de datos
     try {
-      // 1. Intentar vía RPC
       const { error: rpcError } = await supabase.rpc('avanzar_pipeline', {
         p_lead_id: leadId,
-        p_new_stage: stageId,
+        p_new_stage: targetStage,
         p_actor: 'director'
       });
 
       if (rpcError) {
-        console.warn('RPC avanzar_pipeline falló o no existe, usando fallback directo:', rpcError);
-        // Fallback
+        console.warn('avanzar_pipeline RPC falló, aplicando fallback directo:', rpcError);
         const { error: updateError } = await supabase
           .from('crm_leads')
-          .update({ stage: stageId, updated_at: new Date().toISOString() })
+          .update({ stage: targetStage, stage_updated_at: new Date().toISOString() })
           .eq('id', leadId);
 
         if (updateError) throw updateError;
 
-        // Insertar registro de actividad
         await supabase.from('crm_activities').insert({
           lead_id: leadId,
           type: 'sistema',
-          content: `Etapa del pipeline cambiada manualmente a: ${stageId}`,
+          content: `Etapa cambiada a: ${targetStage} (vía fallback directo)`,
           created_by: 'director'
         });
       }
-      
-      // Refrescar para asegurar sincronización limpia
+
+      showNotification('Etapa actualizada con éxito', 'success');
       fetchLeads();
     } catch (err) {
-      console.error('Error al actualizar etapa del lead:', err);
-      fetchLeads(); // Revertir cambios en UI si hay error
+      console.error('Error persisting stage change:', err);
+      showNotification('Error al guardar el cambio en el servidor');
+      fetchLeads();
     }
   };
 
@@ -207,14 +281,13 @@ export const PipelineKanban = () => {
           ...newLeadForm,
           stage: 'nuevo',
           created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          stage_updated_at: new Date().toISOString()
         }])
         .select();
 
       if (error) throw error;
 
       if (data && data[0]) {
-        // Registrar actividad inicial
         await supabase.from('crm_activities').insert({
           lead_id: data[0].id,
           type: 'sistema',
@@ -233,37 +306,69 @@ export const PipelineKanban = () => {
         budget_range: '',
         message: ''
       });
+      showNotification('Lead registrado exitosamente', 'success');
       fetchLeads();
     } catch (err) {
       alert('Error al crear lead: ' + err.message);
     }
   };
 
-  // Filtrado de Leads
-  const filteredLeads = leads.filter(lead => {
-    const matchesSearch = 
-      lead.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lead.phone?.includes(searchTerm) ||
-      (lead.email && lead.email.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    const matchesSource = selectedSource === 'all' || lead.source === selectedSource;
-    
-    return matchesSearch && matchesSource;
-  });
+  // Filtrado
+  const filteredLeads = useMemo(() => {
+    return leads.filter(lead => {
+      const matchesSearch = 
+        lead.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        lead.phone?.includes(searchTerm) ||
+        (lead.email && lead.email.toLowerCase().includes(searchTerm.toLowerCase()));
+      
+      const matchesSource = selectedSource === 'all' || lead.source === selectedSource;
+      
+      return matchesSearch && matchesSource;
+    });
+  }, [leads, searchTerm, selectedSource]);
 
-  // Obtener leads agrupados por etapa
-  const getLeadsByStage = (stageId) => {
-    return filteredLeads.filter(l => l.stage === stageId);
+  // Alertas por días en etapa
+  const getStageAlert = (stage, updated_at) => {
+    if (!updated_at) return null;
+    const days = Math.floor((Date.now() - new Date(updated_at)) / 86400000);
+    if (['cotizacion_enviada', 'factura_enviada'].includes(stage) && days > 2) {
+      return { type: 'warn', label: `⚠️ ${days}d en cotización` };
+    }
+    if (stage === 'negociando' && days > 3) {
+      return { type: 'danger', label: `🔴 ${days}d en objeción` };
+    }
+    return days > 0 ? { type: 'info', label: `⏱️ ${days}d en etapa` } : { type: 'info', label: '⏱️ hoy' };
   };
 
+  const getScoreBadge = (scoreLabel) => {
+    const score = String(scoreLabel || '').toUpperCase();
+    if (score === 'HOT') return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+    if (score === 'WARM') return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+    return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+  };
+
+  const activeColumns = STAGE_CONFIG[activeTab] || {};
+
   return (
-    <div className="space-y-6 text-slate-100">
+    <div className="space-y-6 text-slate-100 relative">
       
+      {/* Custom Floating Toast */}
+      {toast && (
+        <div className={`fixed bottom-5 right-5 z-50 p-4 rounded-xl border flex items-center gap-3 shadow-xl transition-all duration-300 animate-slideUp ${
+          toast.type === 'success' 
+            ? 'bg-emerald-950/90 border-emerald-500/30 text-emerald-400' 
+            : 'bg-rose-950/90 border-rose-500/30 text-rose-400'
+        }`}>
+          <span>{toast.type === 'success' ? '✅' : '❌'}</span>
+          <span className="text-xs font-black tracking-wide">{toast.message}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-black tracking-tight text-white">Funnel de Ventas</h1>
-          <p className="text-slate-400 mt-1 font-medium">Gestión visual del embudo de leads (Supabase + OpenClaw)</p>
+          <p className="text-slate-400 mt-1 font-medium">Commercial Intelligence Workspace (COS-v3.5)</p>
         </div>
         <div className="flex items-center gap-3">
           <button 
@@ -289,9 +394,9 @@ export const PipelineKanban = () => {
             placeholder="Buscar por nombre, teléfono o correo..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-800/80 px-4 py-2.5 pl-10 rounded-xl text-slate-200 placeholder-slate-500 text-sm focus:outline-none focus:border-blue-500/50"
+            className="w-full bg-slate-950 border border-slate-800/80 px-4 py-2.5 pl-10 rounded-xl text-slate-200 placeholder-slate-555 text-sm focus:outline-none focus:border-blue-500/50"
           />
-          <span className="absolute left-3.5 top-3 text-slate-500 text-sm">🔍</span>
+          <span className="absolute left-3.5 top-3 text-slate-550 text-sm">🔍</span>
         </div>
         <div className="w-full md:w-48">
           <select
@@ -309,95 +414,150 @@ export const PipelineKanban = () => {
         </div>
       </div>
 
+      {/* Tabs Selector */}
+      <div className="flex flex-wrap gap-2 border-b border-slate-800/80 pb-3">
+        {TABS_CONFIG.map(tab => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all ${
+                isActive 
+                  ? tab.activeColor 
+                  : 'border-transparent text-slate-500 hover:text-slate-350 hover:bg-slate-900/30'
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Kanban Board Container */}
       {loading ? (
         <div className="flex flex-col items-center justify-center h-96 space-y-4">
-          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-          <div className="text-gray-400 font-medium animate-pulse">Cargando embudo de ventas...</div>
+          <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          <div className="text-slate-400 font-bold animate-pulse text-xs uppercase tracking-widest">Sincronizando Workspace...</div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 overflow-x-auto pb-6">
-          {STAGES.map(stage => {
-            const stageLeads = getLeadsByStage(stage.id);
-            const isOver = dragOverStage === stage.id;
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6">
+          {Object.entries(activeColumns).map(([colId, colConfig]) => {
+            const colLeads = filteredLeads.filter(l => colConfig.stages.includes(l.stage));
+            const budgetSum = colLeads.reduce((sum, l) => sum + parseBudget(l), 0);
+            const isOver = dragOverStage === colConfig.stages[0]; // drop target principal
 
             return (
               <div 
-                key={stage.id}
-                onDragOver={(e) => handleDragOver(e, stage.id)}
-                onDrop={(e) => handleDrop(e, stage.id)}
+                key={colId}
+                onDragOver={(e) => handleDragOver(e, colConfig.stages[0])}
+                onDrop={(e) => handleDrop(e, colConfig.stages[0])}
                 onDragLeave={() => setDragOverStage(null)}
-                className={`flex flex-col w-full min-h-[500px] bg-slate-900/40 border rounded-2xl transition-all p-3 space-y-3 ${
-                  isOver ? 'border-blue-500/60 bg-blue-500/5 scale-[1.01]' : 'border-slate-800/60'
+                className={`flex flex-col w-full min-h-[500px] bg-slate-900/20 border rounded-3xl transition-all p-4 space-y-4 ${
+                  isOver ? 'border-blue-500/40 bg-blue-500/5 scale-[1.005]' : 'border-slate-850'
                 }`}
               >
                 {/* Column Header */}
-                <div className={`flex items-center justify-between border-b pb-2 px-1 ${stage.color}`}>
-                  <span className="font-extrabold text-sm uppercase tracking-wider flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${stage.dot}`}></span>
-                    {stage.name}
-                  </span>
-                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-950/40 border border-slate-800/55">
-                    {stageLeads.length}
-                  </span>
+                <div className={`flex flex-col pb-3 border-b border-slate-850`}>
+                  <div className="flex justify-between items-center">
+                    <span className="font-black text-sm uppercase tracking-widest text-white flex items-center gap-2">
+                      {colConfig.label}
+                    </span>
+                    {colConfig.webhook && (
+                      <span className="text-[9px] font-mono text-slate-500 border border-slate-800 px-2 py-0.5 rounded-lg bg-slate-950/30">
+                        {colConfig.webhook}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex gap-3 mt-1.5 text-xs text-slate-500 font-bold">
+                    <span>{colLeads.length} leads</span>
+                    {budgetSum > 0 && (
+                      <span className="text-emerald-450 font-mono">
+                        RD$ {budgetSum.toLocaleString('es-DO')}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Cards List */}
                 <div className="flex-1 space-y-3 overflow-y-auto max-h-[600px] pr-1">
-                  {stageLeads.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-32 border border-dashed border-slate-800/60 rounded-xl text-xs text-slate-500">
-                      Arrastrar aquí
+                  {colLeads.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-40 border border-dashed border-slate-800/80 rounded-2xl text-xs text-slate-600">
+                      Arrastrar leads aquí
                     </div>
                   ) : (
-                    stageLeads.map(lead => (
-                      <div
-                        key={lead.id}
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, lead.id)}
-                        onClick={() => setSelectedLeadId(lead.id)}
-                        className={`bg-slate-950 border rounded-xl p-3.5 hover:border-slate-700 cursor-pointer shadow-md group transition-all duration-300 relative ${
-                          selectedLeadId === lead.id ? 'border-blue-500/60 bg-blue-950/20' : 'border-slate-850'
-                        }`}
-                      >
-                        {/* Source Tag */}
-                        <div className="flex items-center justify-between mb-2">
-                          <span className={`text-[9px] font-black border uppercase tracking-wider px-1.5 py-0.5 rounded ${
-                            SOURCE_BADGES[lead.source] || 'bg-slate-800 text-slate-400 border-slate-700'
-                          }`}>
-                            {lead.source}
-                          </span>
-                          {lead.budget_range && (
-                            <span className="text-[10px] font-black text-emerald-400 font-mono">
-                              {lead.budget_range}
+                    colLeads.map(lead => {
+                      const alert = getStageAlert(lead.stage, lead.stage_updated_at);
+                      
+                      return (
+                        <div
+                          key={lead.id}
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, lead.id)}
+                          onClick={() => setSelectedLeadId(lead.id)}
+                          className={`bg-slate-950 border rounded-2xl p-4 hover:border-slate-700 cursor-pointer shadow-md group transition-all duration-200 ${
+                            selectedLeadId === lead.id ? 'border-blue-500/60 bg-blue-950/20' : 'border-slate-850/90'
+                          }`}
+                        >
+                          {/* Top Row: Source and Score */}
+                          <div className="flex items-center justify-between mb-2.5">
+                            <span className={`text-[9px] font-black border uppercase tracking-wider px-2 py-0.5 rounded-lg ${
+                              SOURCE_BADGES[lead.source] || 'bg-slate-800 text-slate-400 border-slate-700'
+                            }`}>
+                              {lead.source}
                             </span>
+                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${getScoreBadge(lead.score_label)}`}>
+                              {lead.score_label || 'COLD'}
+                            </span>
+                          </div>
+
+                          {/* Lead Name */}
+                          <div className="space-y-0.5">
+                            <h4 className="font-bold text-white text-sm group-hover:text-blue-400 transition-colors">
+                              {lead.full_name}
+                            </h4>
+                            <p className="text-xs text-slate-500 font-semibold font-mono">{lead.phone}</p>
+                          </div>
+
+                          {/* Hotel Interest & Dates */}
+                          {(lead.hotel_interest || lead.check_in) && (
+                            <div className="mt-3 pt-2.5 border-t border-slate-900/60 space-y-1 text-[11px] text-slate-400 font-semibold">
+                              {lead.check_in && (
+                                <div className="flex items-center gap-1.5 font-mono text-slate-500">
+                                  <span>📅</span>
+                                  <span>{lead.check_in} a {lead.check_out || '—'}</span>
+                                </div>
+                              )}
+                              {lead.hotel_interest && (
+                                <div className="flex items-center gap-1.5">
+                                  <span>🏨</span>
+                                  <span className="truncate uppercase text-slate-300">{lead.hotel_interest}</span>
+                                </div>
+                              )}
+                            </div>
                           )}
-                        </div>
 
-                        {/* Name & Phone */}
-                        <div className="space-y-0.5">
-                          <h4 className="font-bold text-white text-sm group-hover:text-blue-400 transition-colors">
-                            {lead.full_name}
-                          </h4>
-                          <p className="text-xs text-slate-400 font-medium font-mono">{lead.phone}</p>
-                        </div>
-
-                        {/* Hotel Interest */}
-                        {lead.hotel_interest && (
-                          <div className="mt-2.5 pt-2 border-t border-slate-900 flex items-center gap-1.5 text-[10px] text-slate-400 font-semibold">
-                            <span>🏨</span>
-                            <span className="truncate">{lead.hotel_interest}</span>
+                          {/* Occupancy and Alert */}
+                          <div className="mt-3 flex items-center justify-between text-[10px] border-t border-slate-900/30 pt-2">
+                            <div className="flex items-center gap-1.5 text-slate-500 font-bold">
+                              <span>👥</span>
+                              <span>{lead.adults || 1} Ad {lead.children > 0 && `· ${lead.children} Ch`}</span>
+                            </div>
+                            {alert && (
+                              <span className={`px-2 py-0.5 rounded font-black uppercase text-[9px] ${
+                                alert.type === 'danger' 
+                                  ? 'bg-rose-500/10 text-rose-450 border border-rose-500/20' 
+                                  : alert.type === 'warn'
+                                  ? 'bg-amber-500/10 text-amber-450 border border-amber-500/20'
+                                  : 'bg-slate-800 text-slate-400'
+                              }`}>
+                                {alert.label}
+                              </span>
+                            )}
                           </div>
-                        )}
-
-                        {/* Occupancy Indicator */}
-                        {(lead.adults > 2 || lead.children > 0) && (
-                          <div className="mt-1 flex items-center gap-1.5 text-[10px] text-slate-500 font-medium">
-                            <span>👥</span>
-                            <span>{lead.adults} Ad · {lead.children} Ch</span>
-                          </div>
-                        )}
-                      </div>
-                    ))
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -502,7 +662,7 @@ export const PipelineKanban = () => {
                     value={newLeadForm.budget_range}
                     onChange={(e) => setNewLeadForm({ ...newLeadForm, budget_range: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-850 px-3 py-2 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-blue-500/50"
-                    placeholder="Ej. USD 1000 - 1500"
+                    placeholder="Ej. RD$ 40,000"
                   />
                 </div>
               </div>

@@ -200,14 +200,72 @@ export default function BookingOpsPanel() {
           bookings={bookings}
           hotels={hotels}
           onConfirm={async (id, ref) => {
+            const booking = bookings.find(b => b.id === id);
+            let foundLeadId = booking?.lead_id || null;
+
+            if (!foundLeadId && booking) {
+              if (booking.lead_email || booking.lead_phone) {
+                if (booking.lead_email) {
+                  const { data: byEmail } = await supabaseAdmin
+                    .from('crm_leads')
+                    .select('id')
+                    .eq('email', booking.lead_email.trim())
+                    .limit(1);
+                  if (byEmail && byEmail.length > 0) {
+                    foundLeadId = byEmail[0].id;
+                  }
+                }
+
+                if (!foundLeadId && booking.lead_phone) {
+                  const cleanPhone = booking.lead_phone.replace(/\D/g, '');
+                  if (cleanPhone) {
+                    const { data: byPhone } = await supabaseAdmin
+                      .from('crm_leads')
+                      .select('id, phone')
+                      .order('created_at', { ascending: false })
+                      .limit(100);
+                    if (byPhone) {
+                      const matched = byPhone.find(l => {
+                        const lp = (l.phone || '').replace(/\D/g, '');
+                        return lp && (lp === cleanPhone || lp.endsWith(cleanPhone) || cleanPhone.endsWith(lp));
+                      });
+                      if (matched) {
+                        foundLeadId = matched.id;
+                      }
+                    }
+                  }
+                }
+              }
+
+              if (!foundLeadId) {
+                foundLeadId = crypto.randomUUID();
+                const guestName = (booking.lead_guest_name || '').replace('Mr/Ms ', '');
+                const { error: errLead } = await supabaseAdmin.from('crm_leads').insert({
+                  id: foundLeadId,
+                  full_name: guestName || 'Cliente Manual',
+                  phone: booking.lead_phone || 'manual',
+                  email: booking.lead_email || null,
+                  source: 'manual',
+                  stage: 'deposito_recibido',
+                  hotel_interest: booking.hotel_code || null,
+                  message: `Creado al confirmar la reserva manual #${ref}`
+                });
+                if (errLead) {
+                  console.error('Error creando lead al confirmar:', errLead.message);
+                }
+              }
+            }
+
             await supabaseAdmin.from('bookings').update({
               status: 'confirmed',
               fulfillment_status: 'confirmed',
               validated_by: 'admin',
               validated_at: new Date().toISOString(),
-            }).eq('id', id)
-            showToast(`✓ Reserva ${ref} confirmada`)
-            loadBookings()
+              lead_id: foundLeadId
+            }).eq('id', id);
+
+            showToast(`✓ Reserva ${ref} confirmada y vinculada al CRM`);
+            loadBookings();
           }}
           onCancel={async (id, ref) => {
             if (!confirm(`¿Cancelar la reserva ${ref}?`)) return
