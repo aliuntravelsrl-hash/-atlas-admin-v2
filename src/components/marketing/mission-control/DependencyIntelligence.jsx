@@ -38,7 +38,8 @@ export const DependencyIntelligence = () => {
 
   const {
     cuellos_activos_count = 0,
-    en_ready = 0
+    en_ready = 0,
+    liberadas_hoy = 0
   } = stats;
 
   const getRelativeTime = (isoString) => {
@@ -62,7 +63,7 @@ export const DependencyIntelligence = () => {
             Dependency Intelligence
           </span>
           <span className="text-[9px] font-black text-slate-550 uppercase font-mono">
-            {cuellos_activos_count} cuellos activos · {en_ready} en ready
+            {cuellos_activos_count} cuellos · {en_ready} ready · {liberadas_hoy} liberada{liberadas_hoy === 1 ? '' : 's'} hoy
           </span>
         </div>
 
@@ -87,25 +88,23 @@ export const DependencyIntelligence = () => {
 
                 return (
                   <div key={idx} className="bg-slate-900/35 border border-slate-850/50 p-2.5 rounded-xl space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs">{dot}</span>
-                      <span className="font-bold font-mono text-[10px] text-white">
-                        {item.codigo}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 font-mono text-[10px] text-white">
+                        <span>{dot}</span>
+                        <span className="font-bold">{item.codigo}</span>
+                        {item.bloquea_a && item.bloquea_a.length > 0 && (
+                          <span className="text-slate-500 font-normal">
+                            → [{item.bloquea_a.join(', ')}]
+                          </span>
+                        )}
+                      </div>
+                      <span className={`text-[8px] font-black uppercase px-1 rounded font-mono ${
+                        isCritica ? 'bg-rose-500/10 text-rose-455' : isReady ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-400'
+                      }`}>
+                        {isCritica ? 'crítica' : isReady ? 'ready' : item.prioridad || item.estado}
                       </span>
-                      {item.prioridad && (
-                        <span className={`text-[8px] font-black uppercase px-1 rounded ${
-                          isCritica ? 'bg-rose-500/10 text-rose-455' : 'bg-blue-500/10 text-blue-400'
-                        }`}>
-                          ({item.prioridad})
-                        </span>
-                      )}
-                      {item.bloquea_a && item.bloquea_a.length > 0 && (
-                        <span className="text-[10px] text-slate-500 font-mono">
-                          → {item.bloquea_a.join(', ')}
-                        </span>
-                      )}
                     </div>
-                    <div className="text-[10px] text-slate-450 pl-5 italic leading-tight">
+                    <div className="text-[10px] text-slate-450 pl-6 italic leading-tight">
                       "{item.titulo}"
                     </div>
                   </div>
@@ -116,15 +115,15 @@ export const DependencyIntelligence = () => {
         </div>
       </div>
 
-      {/* Sección: Liberadas Hoy / Resueltas Recientes */}
+      {/* Sección: Liberadas Últimas 48H */}
       <div className="mt-4 pt-3.5 border-t border-slate-900/60">
         <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-wider block mb-2.5 flex items-center gap-1">
           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-          Liberadas Hoy
+          LIBERADAS ÚLTIMAS 48H
         </span>
         {resueltos_recientes.length === 0 ? (
           <div className="text-[10px] text-slate-550 italic">
-            Ninguna dependencia crítica resuelta en las últimas 24h.
+            Ninguna dependencia crítica resuelta recientemente.
           </div>
         ) : (
           <div className="space-y-2">
