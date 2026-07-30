@@ -32,16 +32,40 @@ export default function AtlasExecutionPulse({ atlasTasks = [] }) {
   const estancados  = atlasTasks.filter(t => t.estado === 'en_progreso' && (now - new Date(t.updated_at).getTime()) >= H24);
   const bloqueados  = atlasTasks.filter(t => t.estado === 'bloqueada');
 
-  // ── 3. Distribución por ejecutor ────────────────────────────────────────
-  const porEjecutor = {};
+  // ── 3. Distribución por ejecutor (Normalizado y Completo) ───────────────
+  const getNormalizedExecutor = (t) => {
+    let ejRaw = t.ejecutor || t.asignado_a || '—';
+    let ej = ejRaw.toLowerCase().trim();
+    if (ej === 'claude' || ej === 'computer') return 'atlas-tech';
+    if (ej === 'ariadne' || ej === 'intel') return 'ariadne-data';
+    return ejRaw;
+  };
+
+  const porEjecutor = {
+    'atlas-tech': 0,
+    'antigravity': 0,
+    'director': 0,
+    'hermes-ops': 0,
+    'hermes-marketing': 0,
+    'hermes-qa': 0,
+    'ariadne-data': 0
+  };
+
   atlasTasks.forEach(t => {
-    const ej = t.ejecutor || t.asignado_a || '—';
-    porEjecutor[ej] = (porEjecutor[ej] || 0) + 1;
+    let ej = getNormalizedExecutor(t).toLowerCase().trim();
+    if (ej === '—') return;
+
+    if (porEjecutor[ej] !== undefined) {
+      porEjecutor[ej]++;
+    } else {
+      porEjecutor[ej] = (porEjecutor[ej] || 0) + 1;
+    }
   });
+
   const ejecutorList = Object.entries(porEjecutor)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6);
-  const maxEj = ejecutorList[0]?.[1] || 1;
+    .sort((a, b) => b[1] - a[1]);
+
+  const maxEj = Math.max(...Object.values(porEjecutor), 1);
 
   // ── 4. Tareas con dependencias (depende_de[] no vacío) ──────────────────
   const conDependencias = atlasTasks.filter(t => Array.isArray(t.depende_de) && t.depende_de.length > 0);
@@ -174,7 +198,7 @@ export default function AtlasExecutionPulse({ atlasTasks = [] }) {
             <div key={t.codigo} className="flex items-center gap-2 py-0.5">
               <span className="text-[9px] font-black text-red-400 w-[70px] shrink-0">{t.codigo}</span>
               <span className="text-[10px] text-slate-300 truncate flex-1">{t.titulo}</span>
-              <span className="text-[9px] text-slate-500 shrink-0">{t.ejecutor || t.asignado_a || '—'}</span>
+              <span className="text-[9px] text-slate-500 shrink-0">{getNormalizedExecutor(t)}</span>
               <span className="text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0"
                 style={{ color: estadoLabel[t.estado]?.color || '#6B7280', backgroundColor: estadoLabel[t.estado]?.bg || 'transparent' }}>
                 {estadoLabel[t.estado]?.label || t.estado}
