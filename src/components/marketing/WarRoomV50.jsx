@@ -14,6 +14,7 @@ import SupplierHealth from './mission-control/SupplierHealth';
 import ConstitutionalReadiness from './mission-control/ConstitutionalReadiness';
 import KnowledgeIntegrityPanel from './mission-control/KnowledgeIntegrityPanel';
 import SwarmHealthLive from './mission-control/SwarmHealthLive';
+import DependencyIntelligence from './mission-control/DependencyIntelligence';
 
 // ── Clientes Supabase ────────────────────────────────────────
 const SUPA_URL = import.meta.env.VITE_SUPABASE_URL || 'https://oyihiyivdhfxpyiwnmqk.supabase.co';
@@ -679,6 +680,9 @@ export const WarRoomV50 = () => {
 
                   {/* FASE 5: Swarm Monitor */}
                   <SwarmMonitor swarmData={swarmMonitorData} loading={loading} />
+
+                  {/* Dependency Intelligence (Live RPC) */}
+                  <DependencyIntelligence />
 
                   {/* Cableado/APIs de Actividad */}
                   <div className="col-span-full grid grid-cols-1 md:grid-cols-3 gap-4">
