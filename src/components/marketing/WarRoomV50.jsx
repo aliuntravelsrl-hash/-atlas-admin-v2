@@ -11,6 +11,9 @@ import VPSMonitor from './mission-control/VPSMonitor';
 import SystemHealth from './mission-control/SystemHealth';
 import MarketingOverview from './mission-control/MarketingOverview';
 import SupplierHealth from './mission-control/SupplierHealth';
+import ConstitutionalReadiness from './mission-control/ConstitutionalReadiness';
+import KnowledgeIntegrityPanel from './mission-control/KnowledgeIntegrityPanel';
+import SwarmHealthLive from './mission-control/SwarmHealthLive';
 
 // ── Clientes Supabase ────────────────────────────────────────
 const SUPA_URL = import.meta.env.VITE_SUPABASE_URL || 'https://oyihiyivdhfxpyiwnmqk.supabase.co';
@@ -52,6 +55,10 @@ export const WarRoomV50 = () => {
   const [swarmMonitorData, setSwarmMonitorData] = useState(null);
   const [marketingKPIs, setMarketingKPIs] = useState(null);
   const [supplierHealthData, setSupplierHealthData] = useState(null);
+  const [constitutionalReadiness, setConstitutionalReadiness] = useState(null);
+  const [executionReadiness, setExecutionReadiness] = useState([]);
+  const [pipelineHealth, setPipelineHealth] = useState(null);
+  const [swarmHealth, setSwarmHealth] = useState([]);
   
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -201,6 +208,38 @@ export const WarRoomV50 = () => {
         setSupplierHealthData(syncLogs && syncLogs.length > 0 ? { logs: syncLogs } : null);
       } catch (err) {
         console.error("Error al cargar SupplierHealthReadModel:", err);
+      }
+
+      // 13. Consultar mc_constitutional_readiness()
+      try {
+        const { data: constReadiness } = await withTimeout(supabase.rpc('mc_constitutional_readiness'));
+        setConstitutionalReadiness(constReadiness || null);
+      } catch (err) {
+        console.error("Error al cargar mc_constitutional_readiness:", err);
+      }
+
+      // 14. Consultar mc_execution_readiness()
+      try {
+        const { data: execReadiness } = await withTimeout(supabase.rpc('mc_execution_readiness'));
+        setExecutionReadiness(execReadiness || []);
+      } catch (err) {
+        console.error("Error al cargar mc_execution_readiness:", err);
+      }
+
+      // 15. Consultar mc_pipeline_health()
+      try {
+        const { data: pipeHealth } = await withTimeout(supabase.rpc('mc_pipeline_health'));
+        setPipelineHealth(pipeHealth || null);
+      } catch (err) {
+        console.error("Error al cargar mc_pipeline_health:", err);
+      }
+
+      // 16. Consultar mc_swarm_health()
+      try {
+        const { data: swarmHlth } = await withTimeout(supabase.rpc('mc_swarm_health'));
+        setSwarmHealth(swarmHlth || []);
+      } catch (err) {
+        console.error("Error al cargar mc_swarm_health:", err);
       }
 
       // --- Mapear Cables y Plano Operativo ---
@@ -679,6 +718,67 @@ export const WarRoomV50 = () => {
                 <div className="space-y-6">
                   {/* FASE 4: Separación Visual de Salud y KPIs */}
                   <SystemHealth healthData={readModel.planes.constitutional} loading={loading} onSelectCard={setSelectedEntity} />
+
+                  {/* PLANO EXECUTION READINESS & SWARM HEALTH LIVE */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Widget principal: Constitutional Readiness */}
+                    <ConstitutionalReadiness data={constitutionalReadiness} loading={loading} />
+                    
+                    {/* Widget: Pipeline Health */}
+                    <div className="bg-slate-950/40 border border-slate-850 p-5 rounded-2xl flex flex-col justify-between hover:border-slate-750 transition-all text-xs">
+                      <div>
+                        <div className="flex items-center justify-between border-b border-slate-900 pb-3 mb-4">
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                            <Activity className="w-4 h-4 text-blue-450" />
+                            Pipeline Health (Cola de Tareas)
+                          </span>
+                          <span className="text-[9px] font-black text-slate-500 uppercase font-mono">
+                            Real-time Queue
+                          </span>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-3.5 mt-2">
+                          <div className="bg-slate-900/35 border border-slate-850/50 p-3 rounded-xl">
+                            <span className="text-[8px] font-bold text-slate-500 uppercase block">Pending</span>
+                            <span className="text-sm font-black text-white font-mono">{pipelineHealth?.pending ?? 0}</span>
+                          </div>
+                          <div className="bg-slate-900/35 border border-slate-850/50 p-3 rounded-xl">
+                            <span className="text-[8px] font-bold text-slate-500 uppercase block">Ready</span>
+                            <span className="text-sm font-black text-emerald-400 font-mono">{pipelineHealth?.ready ?? 0}</span>
+                          </div>
+                          <div className="bg-slate-900/35 border border-slate-850/50 p-3 rounded-xl">
+                            <span className="text-[8px] font-bold text-slate-500 uppercase block">Executing</span>
+                            <span className="text-sm font-black text-blue-400 font-mono animate-pulse">{pipelineHealth?.executing ?? 0}</span>
+                          </div>
+                          <div className="bg-slate-900/35 border border-slate-850/50 p-3 rounded-xl">
+                            <span className="text-[8px] font-bold text-slate-500 uppercase block">Completed Hoy</span>
+                            <span className="text-sm font-black text-white font-mono">{pipelineHealth?.completed_today ?? 0}</span>
+                          </div>
+                          <div className="bg-slate-900/35 border border-slate-850/50 p-3 rounded-xl">
+                            <span className="text-[8px] font-bold text-slate-500 uppercase block">Failed</span>
+                            <span className="text-sm font-black text-rose-455 font-mono">{pipelineHealth?.failed ?? 0}</span>
+                          </div>
+                          <div className="bg-slate-900/35 border border-slate-850/50 p-3 rounded-xl">
+                            <span className="text-[8px] font-bold text-slate-500 uppercase block">SLA Breached</span>
+                            <span className="text-sm font-black text-slate-400 font-mono">{pipelineHealth?.sla_breached ?? 0}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="border-t border-slate-900/60 pt-3 mt-4 text-[9px] text-slate-500 flex justify-between items-center font-mono">
+                        <span>Generado: {pipelineHealth?.generated_at ? new Date(pipelineHealth.generated_at).toLocaleTimeString('es-DO') : '—'}</span>
+                        <span className="text-blue-400 font-bold uppercase tracking-wider">Active Run</span>
+                      </div>
+                    </div>
+
+                    {/* Widget: Swarm Health Live (6 agentes) */}
+                    <SwarmHealthLive data={swarmHealth} loading={loading} />
+                  </div>
+
+                  {/* Tabla de auditoría KBP por agente */}
+                  <div className="grid grid-cols-1 gap-6">
+                    <KnowledgeIntegrityPanel data={executionReadiness} loading={loading} />
+                  </div>
+
                   <MarketingOverview marketingData={marketingKPIs} loading={loading} />
                 </div>
               )}
