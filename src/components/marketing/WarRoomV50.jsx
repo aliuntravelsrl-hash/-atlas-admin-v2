@@ -10,6 +10,7 @@ import KnowledgePanel from './mission-control/KnowledgePanel';
 import VPSMonitor from './mission-control/VPSMonitor';
 import SystemHealth from './mission-control/SystemHealth';
 import MarketingOverview from './mission-control/MarketingOverview';
+import SupplierHealth from './mission-control/SupplierHealth';
 
 // ── Clientes Supabase ────────────────────────────────────────
 const SUPA_URL = import.meta.env.VITE_SUPABASE_URL || 'https://oyihiyivdhfxpyiwnmqk.supabase.co';
@@ -50,6 +51,7 @@ export const WarRoomV50 = () => {
   const [liveLogsData, setLiveLogsData] = useState([]);
   const [swarmMonitorData, setSwarmMonitorData] = useState(null);
   const [marketingKPIs, setMarketingKPIs] = useState(null);
+  const [supplierHealthData, setSupplierHealthData] = useState(null);
   
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -188,6 +190,18 @@ export const WarRoomV50 = () => {
         agents: agentActivityMap,
         tasks: swarmTasks || []
       });
+
+      // 12. Consultar logs de integraciones para salud de proveedores (Read Model)
+      try {
+        const { data: syncLogs } = await supabase
+          .from('sync_bridge_logs')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(10);
+        setSupplierHealthData(syncLogs && syncLogs.length > 0 ? { logs: syncLogs } : null);
+      } catch (err) {
+        console.error("Error al cargar SupplierHealthReadModel:", err);
+      }
 
       // --- Mapear Cables y Plano Operativo ---
       const operationalCards = [];
@@ -672,6 +686,8 @@ export const WarRoomV50 = () => {
               {/* VISTA DEL PLANO GOVERNANCE */}
               {activePlane === 'governance' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  <SupplierHealth data={supplierHealthData} loading={loading} />
+                  
                   {readModel.planes.governance.cards.map(card => (
                     <div
                       key={card.id}

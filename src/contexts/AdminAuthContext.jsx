@@ -8,81 +8,140 @@ export const AdminAuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Restaurar sesión de localStorage al montar el componente
-    const storedUser = localStorage.getItem('aliun_admin_user');
-    if (storedUser) {
-      try {
-        const parsedUser = JSON.parse(storedUser);
-        
-        // Expirar sesión si supera las 24 horas
-        const loginTime = parsedUser.loginTime || 0;
-        const ONE_DAY = 24 * 60 * 60 * 1000;
-        const now = Date.now();
+    let mounted = true;
 
-        if (now - loginTime > ONE_DAY) {
-          console.warn('⚠️ Admin session expired, clearing storage');
-          localStorage.removeItem('aliun_admin_user');
-          setUser(null);
-        } else {
-          console.log('✅ Admin session restored for:', parsedUser.email);
-          setUser(parsedUser);
-        }
-      } catch (e) {
-        console.error("Error parsing stored admin user", e);
-        localStorage.removeItem('aliun_admin_user');
+    // Obtener sesión inicial de Supabase de forma nativa
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user && mounted) {
+        verifyAdminStatus(session.user);
+      } else if (mounted) {
+        setUser(null);
+        setLoading(false);
       }
-    }
-    setLoading(false);
+    });
+
+    // Escuchar cambios en el estado de autenticación
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user && mounted) {
+        await verifyAdminStatus(session.user);
+      } else if (mounted) {
+        setUser(null);
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
-  const login = async (email, password) => {
-    console.log(`🔐 Attempting secure admin login for: ${email}`);
-    
+  const verifyAdminStatus = async (authUser) => {
     try {
-      // 1. Invocar la función RPC verify_admin_user en la base de datos (seguro, sin RLS anon bypass)
-      const { data: authResult, error } = await supabase
-        .rpc('verify_admin_user', {
-          p_email: email,
-          p_password: password
-        });
+      // Consultamos el perfil del administrador en la tabla pública usando el nuevo campo auth_user_id
+      const { data: adminData, error } = await supabase
+        .from('admin_users')
+        .select('id, email, name, role, is_active')
+        .eq('auth_user_id', authUser.id)
+        .maybeSingle();
 
       if (error) {
-        console.error('❌ Login Failed: RPC execution error', error);
-        return { success: false, error: 'Error al conectar con el servidor de autenticación' };
+        console.error('❌ Error verificando rol de administrador:', error);
+        setUser(null);
+        setLoading(false);
+        return;
       }
 
-      if (!authResult || !authResult.success) {
-        console.warn('⚠️ Login Failed:', authResult?.error || 'Credenciales inválidas');
-        return { success: false, error: authResult?.error || 'Credenciales inválidas' };
+      if (!adminData) {
+        console.warn('⚠️ Usuario autenticado en Supabase Auth pero no existe perfil en admin_users.');
+        setUser(null);
+        await supabase.auth.signOut();
+        setLoading(false);
+        return;
       }
 
-      // 2. Inicio de sesión exitoso
-      const userData = authResult.user;
+      if (!adminData.is_active) {
+        console.warn('⚠️ Cuenta de administrador desactivada:', adminData.email);
+        setUser(null);
+        await supabase.auth.signOut();
+        setLoading(false);
+        return;
+      }
+
+      // Vinculación exitosa del estado de sesión
       const sessionUser = {
-        id: userData.id,
-        email: userData.email,
-        name: userData.name,
-        role: userData.role,
-        loginTime: Date.now(),
-        lastLoginISO: new Date().toISOString()
+        id: adminData.id,
+        email: adminData.email,
+        name: adminData.name,
+        role: adminData.role,
+        auth_user_id: authUser.id,
+        loginTime: Date.now()
       };
-
-      console.log('🎉 Admin Login Successful:', sessionUser.email);
-      setUser(sessionUser);
-      localStorage.setItem('aliun_admin_user', JSON.stringify(sessionUser));
       
+      setUser(sessionUser);
+      setLoading(false);
+    } catch (e) {
+      console.error('💥 Excepción verificando admin:', e);
+      setUser(null);
+      setLoading(false);
+    }
+  };
+
+  const login = async (email, password) => {
+    console.log(`🔐 Intentando inicio de sesión nativo de Supabase Auth para: ${email}`);
+    setLoading(true);
+    try {
+      // 1. Intentar autenticar con Supabase Auth
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error) {
+        console.error('❌ Error de Supabase Auth en Login:', error.message);
+        setLoading(false);
+        return { success: false, error: 'Credenciales inválidas o error de red' };
+      }
+
+      if (!data.user) {
+        setLoading(false);
+        return { success: false, error: 'No se pudo obtener el usuario de sesión' };
+      }
+
+      // 2. Verificar rol e is_active antes de dar por completado el login del flujo de admin
+      const { data: adminData, error: adminError } = await supabase
+        .from('admin_users')
+        .select('role, is_active')
+        .eq('auth_user_id', data.user.id)
+        .maybeSingle();
+
+      if (adminError || !adminData) {
+        console.warn('⚠️ Sin perfil administrador:', adminError);
+        await supabase.auth.signOut();
+        setLoading(false);
+        return { success: false, error: 'Su usuario no tiene perfil de administrador en el sistema' };
+      }
+
+      if (!adminData.is_active) {
+        console.warn('⚠️ Intentando logear cuenta inactiva');
+        await supabase.auth.signOut();
+        setLoading(false);
+        return { success: false, error: 'Esta cuenta de administrador está desactivada' };
+      }
+
       return { success: true };
 
     } catch (err) {
-      console.error('💥 Critical Login Error:', err);
+      console.error('💥 Error crítico en Login:', err);
+      setLoading(false);
       return { success: false, error: 'Error del servidor al intentar ingresar' };
     }
   };
 
-  const logout = () => {
-    console.log('👋 Admin logging out');
+  const logout = async () => {
+    console.log('👋 Cerrando sesión de administrador');
     setUser(null);
-    localStorage.removeItem('aliun_admin_user');
+    await supabase.auth.signOut();
   };
 
   // Exponer isAdmin de forma reactiva y en minúsculas para mayor robustez
