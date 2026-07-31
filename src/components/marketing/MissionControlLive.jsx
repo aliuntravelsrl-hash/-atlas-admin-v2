@@ -1141,11 +1141,11 @@ export const MissionControlLive = () => {
                         onClick={() => setExpandedOvrTasks(p => ({ ...p, [t.codigo]: !p[t.codigo] }))}
                         className="text-[9px] text-blue-400 hover:text-blue-300 font-bold flex items-center gap-1 select-none w-fit border border-blue-500/20 hover:border-blue-500/40 bg-blue-950/20 px-2 py-0.5 rounded transition"
                       >
-                        ⚡ {expandedOvrTasks[t.codigo] ? 'Colapsar Contrato OVR' : 'Ver Contrato OVR'}
+                        ⚡ {expandedOvrTasks[t.codigo] ? 'Colapsar Evidence Card' : 'Ver Evidence Card (OVR)'}
                       </button>
                     )}
 
-                    {/* Vista Expandida del Contrato OVR */}
+                    {/* Vista Expandida del Contrato OVR (Evidence Card) */}
                     {expandedOvrTasks[t.codigo] && (() => {
                       const ovr = interpretOVRContract(t);
                       if (!ovr || ovr.isLegacy) {
@@ -1175,29 +1175,60 @@ export const MissionControlLive = () => {
                           {/* Cabecera del Contrato */}
                           <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-1">
                             <div>
-                              <div className="text-[8px] font-black uppercase text-blue-400 tracking-wider">📜 OVR CONTRACT IDENTITY</div>
+                              <div className="text-[8px] font-black uppercase text-blue-400 tracking-wider">⚡ OVR EVIDENCE CARD</div>
                               <div className="text-white font-bold text-xs font-mono">{ovr.identity.id}</div>
                             </div>
-                            {ovr.capability.id && (
-                              <span className="px-2 py-0.5 text-[8px] font-black rounded-md bg-violet-500/10 border border-violet-500/20 text-violet-400 font-mono">
-                                Capability: {ovr.capability.id}
-                              </span>
-                            )}
+                            <div className="flex gap-1.5 items-center">
+                              {ovr.identity.type && (
+                                <span className="px-1.5 py-0.5 text-[8px] font-bold rounded bg-slate-800 border border-slate-700 text-slate-400 uppercase font-mono">
+                                  {ovr.identity.type}
+                                </span>
+                              )}
+                              {ovr.capability.id && (
+                                <span className="px-2 py-0.5 text-[8px] font-black rounded-md bg-violet-500/10 border border-violet-500/20 text-violet-400 font-mono">
+                                  Capability: {ovr.capability.id}
+                                </span>
+                              )}
+                            </div>
                           </div>
 
-                          {/* Ownership & Knowledge */}
-                          <div className="grid grid-cols-2 gap-2 text-[9px] bg-slate-950/40 p-2 rounded-md border border-slate-850">
+                          {/* Metadata Grid: Dispatcher, Agent Knowledge, and Dependencies */}
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[9px] bg-slate-950/40 p-2 rounded-md border border-slate-850">
                             <div>
-                              <span className="text-slate-500 font-bold uppercase block text-[8px]">Propiedad & Despacho</span>
+                              <span className="text-slate-500 font-bold uppercase block text-[8px] mb-0.5">👤 Dispatcher & Governance</span>
                               <span>Autorizó: <span className="text-slate-300 font-semibold">{ovr.ownership.authorizedBy || 'N/A'}</span></span>
                               <br />
                               <span>Encargó: <span className="text-slate-300 font-semibold">{ovr.ownership.requestedBy || 'N/A'}</span></span>
+                              {ovr.governance.activeProtocols.length > 0 && (
+                                <>
+                                  <br />
+                                  <span>Protocolo: <span className="text-blue-400 font-mono font-semibold">{ovr.governance.activeProtocols.join(', ')}</span></span>
+                                </>
+                              )}
                             </div>
                             <div>
-                              <span className="text-slate-500 font-bold uppercase block text-[8px]">Cognición del Agente</span>
+                              <span className="text-slate-500 font-bold uppercase block text-[8px] mb-0.5">🧠 Agent Knowledge</span>
                               <span>KBP Frente: <span className="text-slate-300 font-semibold">{ovr.knowledge.kbp}</span></span>
                               <br />
                               <span>Ejecutor: <span className="text-slate-300 font-semibold">{ovr.knowledge.agent || 'N/A'}</span></span>
+                              <br />
+                              <span>Arquitecto: <span className="text-slate-400 font-semibold">{ovr.governance.architectureOwner}</span></span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 font-bold uppercase block text-[8px] mb-0.5">🔗 Dependencies</span>
+                              <span>Bloqueado: <span className={ovr.dependencies.blocked ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'}>{ovr.dependencies.blocked ? 'Sí' : 'No'}</span></span>
+                              {ovr.dependencies.dependsOn && (
+                                <>
+                                  <br />
+                                  <span>Depende de: <span className="text-blue-400 font-mono font-semibold">{ovr.dependencies.dependsOn}</span></span>
+                                </>
+                              )}
+                              {ovr.dependencies.reason && (
+                                <>
+                                  <br />
+                                  <span className="text-rose-300/80 truncate block max-w-full" title={ovr.dependencies.reason}>Razón: {ovr.dependencies.reason}</span>
+                                </>
+                              )}
                             </div>
                           </div>
 
@@ -1258,12 +1289,14 @@ export const MissionControlLive = () => {
                           </div>
 
                           {/* Decision & Evidence */}
-                          {(ovr.decision.rationale || ovr.evidence.result) && (
-                            <div className="p-2.5 bg-slate-950 border border-slate-850 rounded-lg text-[10px] space-y-1.5 text-slate-400">
-                              {ovr.decision.rationale && (
+                          {(ovr.decision.rationale || ovr.evidence.result || ovr.evidence.url) && (
+                            <div className="p-2.5 bg-slate-950 border border-slate-850 rounded-lg text-[10px] space-y-2 text-slate-400">
+                              {ovr.evidence.url && (
                                 <div>
-                                  <span className="font-bold text-[8px] uppercase text-slate-500 block">🧠 Rationale (Dispatcher)</span>
-                                  {ovr.decision.rationale}
+                                  <span className="font-bold text-[8px] uppercase text-blue-500 block">🔗 Evidencia URL</span>
+                                  <a href={ovr.evidence.url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline break-all font-mono">
+                                    {ovr.evidence.url}
+                                  </a>
                                 </div>
                               )}
                               {ovr.evidence.result && (
@@ -1272,12 +1305,18 @@ export const MissionControlLive = () => {
                                   {ovr.evidence.result}
                                 </div>
                               )}
+                              {ovr.decision.rationale && (
+                                <div className="pt-1.5 border-t border-slate-850">
+                                  <span className="font-bold text-[8px] uppercase text-slate-500 block">🧠 Rationale (Decision)</span>
+                                  {ovr.decision.rationale}
+                                </div>
+                              )}
                             </div>
                           )}
 
                           {/* Lifecycle Stepper */}
                           <div className="pt-3.5 border-t border-slate-800">
-                            <span className="font-bold text-[8px] uppercase tracking-wider block text-slate-500 mb-2">🔄 6_flujo_promocion (Ciclo de Vida OVR)</span>
+                            <span className="font-bold text-[8px] uppercase tracking-wider block text-slate-500 mb-2">🔄 6_flujo_promocion (Lifecycle Timeline)</span>
                             <div className="flex items-center justify-between gap-1 overflow-x-auto pb-1">
                               {stages.map((stage, idx) => {
                                 const isActive = idx <= currentStageIndex;

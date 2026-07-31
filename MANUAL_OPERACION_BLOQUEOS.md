@@ -9,12 +9,12 @@ Este manual documenta la implementación de la taxonomía de bloqueo de tareas d
 *   **Proyecto:** `-atlas-admin-v2` (Panel Administrativo Interno)
 *   **Componentes Afectados:**
     *   `src/utils/ovrInterpreter.js`: [NUEVO] Mapea descripciones en Markdown/YAML o payloads estructurados JSONB a la especificación OVR Schema v1.
-    *   `src/components/marketing/MissionControlLive.jsx`: Integración del renderizado de contratos OVR con vistas colapsables de diff, caso de prueba y línea de tiempo de ciclo de vida de 7 estados.
+    *   `src/components/marketing/MissionControlLive.jsx`: Integración del renderizado de contratos OVR rediseñado como una Evidence Card con las 8 dimensiones canónicas (Identity, Capability, Dispatcher, Knowledge, Dependencies, Evidence, Decision, Lifecycle).
     *   `src/components/marketing/AtlasExecutionPulse.jsx`: Ajuste de contador dinámico de tareas activas (`en_progreso` sin estancamiento).
     *   `src/components/marketing/WarRoomV50.jsx`: Mapeo y renderizado de agentes online/busy y visualización de su tarea actual.
     *   `src/components/marketing/mission-control/SwarmMonitor.jsx`: Corrección en el mapeo de estados de agentes basados en el heartbeat de Supabase.
-*   **Versión Anterior:** `0.2.1`
-*   **Versión Nueva:** `0.3.0` (Hito OVR Contract v1)
+*   **Versión Anterior:** `0.3.0`
+*   **Versión Nueva:** `0.4.0` (Hito OVR Evidence Card)
 *   **Fecha de Implementación:** 31 de Julio de 2026
 *   **Desarrollador / Agente:** Antigravity (Advanced Agentic Coding Team)
 
