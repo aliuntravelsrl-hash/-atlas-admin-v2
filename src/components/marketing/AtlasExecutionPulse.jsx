@@ -32,6 +32,44 @@ export default function AtlasExecutionPulse({ atlasTasks = [] }) {
   const estancados  = atlasTasks.filter(t => t.estado === 'en_progreso' && (now - new Date(t.updated_at).getTime()) >= H24);
   const bloqueados  = atlasTasks.filter(t => t.estado === 'bloqueada');
 
+  // ── 2.1 Taxonomía de bloqueos (Bypassed Parsing Pattern) ─────────────────
+  const getBlockingType = (t) => {
+    if (t.estado !== 'bloqueada') return null;
+    const reason = t.bloqueo_razon || '';
+    const match = reason.match(/^\[([A-Z_]+)\]/);
+    if (match) return match[1];
+
+    if (reason.toUpperCase().includes('SPEC')) return 'SPEC';
+    if (reason.toUpperCase().includes('ADR')) return 'ADR';
+    if (reason.toUpperCase().includes('DIRECTOR')) return 'DIRECTOR';
+    if (reason.toUpperCase().includes('INFRA')) return 'INFRA';
+    if (reason.toUpperCase().includes('CREDENTIALS') || reason.toUpperCase().includes('OAUTH')) return 'CREDENTIALS';
+    if (reason.toUpperCase().includes('DEPENDENCY') || reason.toUpperCase().includes('DEPENDE')) return 'DEPENDENCY';
+    if (reason.toUpperCase().includes('DATA') || reason.toUpperCase().includes('DATOS')) return 'DATA';
+    return 'OTHER';
+  };
+
+  const blockingTypesCount = {
+    SPEC: 0,
+    ADR: 0,
+    DIRECTOR: 0,
+    INFRA: 0,
+    EXTERNAL_API: 0,
+    CREDENTIALS: 0,
+    DEPENDENCY: 0,
+    DATA: 0,
+    OTHER: 0
+  };
+
+  bloqueados.forEach(t => {
+    const type = getBlockingType(t) || 'OTHER';
+    if (blockingTypesCount[type] !== undefined) {
+      blockingTypesCount[type]++;
+    } else {
+      blockingTypesCount.OTHER++;
+    }
+  });
+
   // ── 3. Distribución por ejecutor (Normalizado y Completo) ───────────────
   const getNormalizedExecutor = (t) => {
     let ejRaw = t.ejecutor || t.asignado_a || '—';
@@ -132,6 +170,36 @@ export default function AtlasExecutionPulse({ atlasTasks = [] }) {
             subtitle={estancados.length > 0 ? `Sin mov ≥24h` : 'Todo fluye'} />
           <HealthRow icon="🔴" label="Bloqueados" count={bloqueados.length}  color="#EF4444"
             subtitle={bloqueados.length > 0 ? bloqueados.map(b => b.codigo).slice(0,2).join(', ') + (bloqueados.length > 2 ? `…` : '') : 'Sin bloqueos'} />
+          
+          {bloqueados.length > 0 && (
+            <div className="pt-2 border-t border-slate-850 space-y-1.5">
+              <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Por Categoría de Bloqueo:</div>
+              <div className="grid grid-cols-2 gap-1.5 text-[9px]">
+                {Object.entries(blockingTypesCount)
+                  .filter(([_, count]) => count > 0)
+                  .map(([type, count]) => {
+                    const labels = {
+                      SPEC: 'Missing SPEC',
+                      ADR: 'Missing ADR',
+                      DIRECTOR: 'Director Decision',
+                      INFRA: 'Infrastructure',
+                      EXTERNAL_API: 'External API',
+                      CREDENTIALS: 'OAuth / Creds',
+                      DEPENDENCY: 'Dependencies',
+                      DATA: 'Missing Data',
+                      OTHER: 'Otros'
+                    };
+                    return (
+                      <div key={type} className="flex justify-between items-center bg-slate-950/60 border border-slate-850/50 px-2 py-1 rounded-lg">
+                        <span className="text-slate-400 font-medium truncate pr-1">{labels[type] || type}</span>
+                        <span className="font-black text-rose-455 font-mono">{count}</span>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
           {conDependencias.length > 0 && (
             <div className="pt-1 border-t border-slate-800">
               <div className="text-[9px] text-slate-500 font-bold">

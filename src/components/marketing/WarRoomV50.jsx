@@ -188,11 +188,11 @@ export const WarRoomV50 = () => {
         });
       }
       
-      // Consultar tareas activas del Swarm
+      // Consultar tareas activas y bloqueadas del Swarm
       const { data: swarmTasks } = await supabase
         .from('atlas_tasks')
-        .select('*')
-        .eq('asignado_a', 'antigravity'); // O filtrar por tipo si corresponde
+        .select('codigo, titulo, descripcion, asignado_a, asignado_tipo, estado, ejecutor, updated_at')
+        .in('estado', ['en_progreso', 'bloqueada']);
 
       setSwarmMonitorData({
         agents: agentActivityMap,

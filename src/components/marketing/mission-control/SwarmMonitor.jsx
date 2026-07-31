@@ -9,9 +9,10 @@ const HEALTH_STATUS_CONFIG = {
 };
 
 const AGENT_META = {
-  'ariadne-data': { label: 'Ariadne Data', desc: 'Analytics & SSOT rates' },
+  'hermes-ops': { label: 'Hermes Ops', desc: 'Infrastructure & Webhooks' },
   'hermes-commercial': { label: 'Hermes Commercial', desc: 'Tarifas & B2B Inventory' },
   'hermes-marketing': { label: 'Hermes Marketing', desc: 'Copies & Offers Engine' },
+  'ariadne-data': { label: 'Ariadne Data', desc: 'Analytics & SSOT rates' },
   'hermes-qa': { label: 'Hermes QA', desc: 'Test Suites & Validation' },
   'antigravity': { label: 'Antigravity', desc: 'UI/UX Builder & Deployer' }
 };
@@ -21,8 +22,8 @@ export const SwarmMonitor = ({ swarmData, loading }) => {
     return (
       <div className="bg-slate-950/40 border border-slate-850 p-5 rounded-2xl animate-pulse space-y-4 col-span-full">
         <div className="h-4 w-32 bg-slate-800 rounded"></div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-          {[1, 2, 3, 4, 5].map(i => (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+          {[1, 2, 3, 4, 5, 6].map(i => (
             <div key={i} className="h-28 bg-slate-900 rounded-xl"></div>
           ))}
         </div>
@@ -34,7 +35,7 @@ export const SwarmMonitor = ({ swarmData, loading }) => {
   const { agents = {}, tasks = [] } = swarmData || {};
 
   // Mapear agentes para renderizar
-  const agentKeys = ['ariadne-data', 'hermes-commercial', 'hermes-marketing', 'hermes-qa', 'antigravity'];
+  const agentKeys = ['hermes-ops', 'hermes-commercial', 'hermes-marketing', 'ariadne-data', 'hermes-qa', 'antigravity'];
 
   return (
     <div className="bg-slate-950/40 border border-slate-850 p-5 rounded-2xl col-span-full flex flex-col gap-4">
@@ -44,14 +45,14 @@ export const SwarmMonitor = ({ swarmData, loading }) => {
           Swarm Monitor
         </h3>
         <div className="flex gap-4 text-[9px] font-extrabold text-slate-500 uppercase font-mono">
-          <span>Activos: <span className="text-emerald-400">5/5</span></span>
+          <span>Activos: <span className="text-emerald-400">6/6</span></span>
           <span>Tareas ejecutándose: <span className="text-blue-400">
             {tasks.filter(t => t.estado === 'en_progreso').length}
           </span></span>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
         {agentKeys.map(key => {
           const meta = AGENT_META[key] || { label: key, desc: 'Agente autónomo' };
           const activity = agents[key] || { events: 0, errors: 0, lastReport: null };
@@ -70,7 +71,7 @@ export const SwarmMonitor = ({ swarmData, loading }) => {
           const StatusIcon = statusCfg.icon;
 
           // Buscar tarea actual asignada a este agente
-          const currentTask = tasks.find(t => t.owner_type === key && t.estado === 'en_progreso');
+          const currentTask = tasks.find(t => (t.ejecutor === key || t.asignado_a === key) && t.estado === 'en_progreso');
 
           return (
             <div 
@@ -105,7 +106,7 @@ export const SwarmMonitor = ({ swarmData, loading }) => {
               <div className="border-t border-slate-850/40 pt-2.5 mt-3 text-[9px]">
                 {currentTask ? (
                   <div>
-                    <span className="text-blue-400 font-bold block truncate">⚡ {currentTask.title}</span>
+                    <span className="text-blue-400 font-bold block truncate" title={currentTask.titulo}>⚡ {currentTask.titulo}</span>
                     <span className="text-slate-550 font-semibold uppercase text-[8px] mt-0.5 block">Ejecutando...</span>
                   </div>
                 ) : (

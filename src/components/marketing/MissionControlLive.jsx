@@ -120,6 +120,7 @@ export const MissionControlLive = () => {
 
   // ── Mesa de Tareas: filtro + modal ─────────────────────────────────────
   const [taskFilter,      setTaskFilter]      = useState('all'); // all | swarm | antigravity | computer
+  const [taskStatusFilter, setTaskStatusFilter] = useState('all'); // all | en_progreso | estancada | bloqueada | pendiente | completado
   const [showNewTask,     setShowNewTask]     = useState(false);
   const [newTask,         setNewTask]         = useState({
     titulo: '', descripcion: '', tipo: 'proyecto',
@@ -184,6 +185,7 @@ export const MissionControlLive = () => {
           lastActive:         relativeTime(p.ultimo_heartbeat),
           incidentesAbiertos: p.incidentes_abiertos || 0,
           contenedor:         p.contenedor || null,
+          tareaActual:        p.tarea_actual || null,
         })));
         setIncidentes(data?.incidentes_recientes || []);
         setResumenIncidentes({ sin_resolver: data?.resumen?.incidentes_sin_resolver || 0 });
@@ -501,6 +503,22 @@ export const MissionControlLive = () => {
     : incidentes.slice(incidentePage * INC_PAGE_SIZE, (incidentePage + 1) * INC_PAGE_SIZE);
   const totalPaginas = Math.ceil(incidentes.length / INC_PAGE_SIZE);
 
+  const getFilteredTasksCount = () => {
+    const H24 = 24 * 60 * 60 * 1000;
+    const isStuck = (t) => t.estado === 'en_progreso' && (Date.now() - new Date(t.updated_at).getTime()) >= H24;
+    const isActive = (t) => t.estado === 'en_progreso' && (Date.now() - new Date(t.updated_at).getTime()) < H24;
+    return atlasTasks.filter(t => {
+      const matchesRecipient = taskFilter === 'all' || t.asignado_tipo === taskFilter || (taskFilter === 'computer' && !t.asignado_tipo);
+      let matchesStatus = true;
+      if (taskStatusFilter === 'en_progreso') matchesStatus = isActive(t);
+      else if (taskStatusFilter === 'estancada') matchesStatus = isStuck(t);
+      else if (taskStatusFilter === 'bloqueada') matchesStatus = t.estado === 'bloqueada';
+      else if (taskStatusFilter === 'pendiente') matchesStatus = t.estado === 'pendiente';
+      else if (taskStatusFilter === 'completado') matchesStatus = t.estado === 'completado';
+      return matchesRecipient && matchesStatus;
+    }).length;
+  };
+
   // ═══════════════════════════════════════════════════════════════════════
   // RENDER
   // ═══════════════════════════════════════════════════════════════════════
@@ -787,25 +805,35 @@ export const MissionControlLive = () => {
                 <div className="text-center py-10 text-slate-500 text-xs animate-pulse">Cargando personal IA...</div>
               ) : (
                 agents.map((agent, i) => (
-                  <div key={i} className="bg-slate-950 border border-slate-850 p-4 rounded-xl flex items-center justify-between hover:border-slate-700 transition">
-                    <div>
-                      <div className="font-bold text-white text-sm flex items-center gap-2">
-                        {agent.name}
-                        {agent.incidentesAbiertos > 0 && (
-                          <span className="px-1.5 py-0.5 text-[8px] font-black rounded bg-rose-500/15 text-rose-400 border border-rose-500/20">{agent.incidentesAbiertos} inc.</span>
-                        )}
+                  <div key={i} className="bg-slate-950 border border-slate-850 p-4 rounded-xl flex flex-col space-y-2 hover:border-slate-700 transition">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-white text-sm flex items-center gap-2">
+                          {agent.name}
+                          {agent.incidentesAbiertos > 0 && (
+                            <span className="px-1.5 py-0.5 text-[8px] font-black rounded bg-rose-500/15 text-rose-400 border border-rose-500/20">{agent.incidentesAbiertos} inc.</span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-slate-500 font-semibold mt-0.5">{agent.role}</div>
+                        {agent.contenedor && <div className="text-[9px] text-slate-600 font-mono mt-0.5">{agent.contenedor}</div>}
                       </div>
-                      <div className="text-[10px] text-slate-500 font-semibold mt-0.5">{agent.role}</div>
-                      {agent.contenedor && <div className="text-[9px] text-slate-600 font-mono mt-0.5">{agent.contenedor}</div>}
+                      <div className="text-right">
+                        <span className={`px-2 py-0.5 text-[9px] font-black uppercase rounded-md border ${
+                          agent.status === 'Online' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' :
+                          agent.status === 'Busy'   ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' :
+                                                      'bg-slate-800 border-slate-700 text-slate-500'
+                        }`}>{agent.status}</span>
+                        <div className="text-[9px] text-slate-500 mt-1 font-bold">{agent.lastActive}</div>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <span className={`px-2 py-0.5 text-[9px] font-black uppercase rounded-md border ${
-                        agent.status === 'Online' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' :
-                        agent.status === 'Busy'   ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' :
-                                                    'bg-slate-800 border-slate-700 text-slate-500'
-                      }`}>{agent.status}</span>
-                      <div className="text-[9px] text-slate-500 mt-1 font-bold">{agent.lastActive}</div>
-                    </div>
+                    {agent.tareaActual && (
+                      <div className="bg-slate-900/60 border border-slate-850/65 p-2 rounded-lg">
+                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block">Tarea Activa</span>
+                        <span className="text-[10px] text-blue-300 font-mono block mt-0.5 truncate" title={agent.tareaActual}>
+                          ⚡ {agent.tareaActual}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 ))
               )
@@ -850,7 +878,7 @@ export const MissionControlLive = () => {
             <h3 className="font-bold text-white text-base flex items-center gap-2">
               📋 Mesa de Tareas
               <span className="px-2 py-0.5 text-[9px] font-black rounded-md bg-slate-800 border border-slate-700 text-slate-400">
-                {atlasTasks.filter(t => taskFilter === 'all' || t.asignado_tipo === taskFilter || (taskFilter === 'computer' && !t.asignado_tipo)).length}
+                {getFilteredTasksCount()}
               </span>
             </h3>
             <button
@@ -860,24 +888,48 @@ export const MissionControlLive = () => {
             </button>
           </div>
 
-          {/* Filtros por destinatario */}
-          <div className="flex flex-wrap gap-1.5">
-            {[
-              { key: 'all',         label: 'Todas',       color: 'text-slate-300 border-slate-600' },
-              { key: 'computer',    label: '🖥 Computer',  color: 'text-blue-400 border-blue-500/40' },
-              { key: 'swarm',       label: '🤖 Swarm',     color: 'text-violet-400 border-violet-500/40' },
-              { key: 'antigravity', label: '👤 Director',  color: 'text-amber-400 border-amber-500/40' },
-            ].map(f => (
-              <button key={f.key}
-                onClick={() => setTaskFilter(f.key)}
-                className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-md border transition ${
-                  taskFilter === f.key
-                    ? `bg-slate-700 ${f.color}`
-                    : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600'
-                }`}>
-                {f.label}
-              </button>
-            ))}
+          {/* Filtros por destinatario y estado */}
+          <div className="flex flex-col gap-2.5">
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { key: 'all',         label: 'Todas',       color: 'text-slate-300 border-slate-600' },
+                { key: 'computer',    label: '🖥 Computer',  color: 'text-blue-400 border-blue-500/40' },
+                { key: 'swarm',       label: '🤖 Swarm',     color: 'text-violet-400 border-violet-500/40' },
+                { key: 'antigravity', label: '👤 Director',  color: 'text-amber-400 border-amber-500/40' },
+              ].map(f => (
+                <button key={f.key}
+                  onClick={() => setTaskFilter(f.key)}
+                  className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-md border transition ${
+                    taskFilter === f.key
+                      ? `bg-slate-700 ${f.color}`
+                      : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600'
+                  }`}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Filtros por estado de ejecución */}
+            <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-850/50">
+              {[
+                { key: 'all',         label: 'Cualquier Estado',  color: 'text-slate-300 border-slate-600' },
+                { key: 'en_progreso', label: '🟢 Activas',       color: 'text-emerald-400 border-emerald-500/40' },
+                { key: 'estancada',   label: '🟡 Estancadas',    color: 'text-amber-400 border-amber-500/40' },
+                { key: 'bloqueada',   label: '🔴 Bloqueadas',    color: 'text-rose-400 border-rose-500/40' },
+                { key: 'pendiente',   label: '🔲 Pendientes',    color: 'text-slate-400 border-slate-600' },
+                { key: 'completado',  label: '✓ Hechas',         color: 'text-blue-400 border-blue-500/40' },
+              ].map(f => (
+                <button key={f.key}
+                  onClick={() => setTaskStatusFilter(f.key)}
+                  className={`text-[9px] font-bold px-2 py-0.5 rounded border transition ${
+                    taskStatusFilter === f.key
+                      ? `bg-slate-800 ${f.color}`
+                      : 'bg-slate-950 border-slate-850 text-slate-500 hover:border-slate-750'
+                  }`}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Form Nueva Tarea (inline collapsible) */}
@@ -980,14 +1032,25 @@ export const MissionControlLive = () => {
           {/* Lista de tareas filtradas */}
           <div className="space-y-2.5 max-h-[480px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800">
             {(() => {
-              const filtered = atlasTasks.filter(t =>
-                taskFilter === 'all' ||
-                t.asignado_tipo === taskFilter ||
-                (taskFilter === 'computer' && !t.asignado_tipo)
-              );
+              const H24 = 24 * 60 * 60 * 1000;
+              const isStuck = (t) => t.estado === 'en_progreso' && (Date.now() - new Date(t.updated_at).getTime()) >= H24;
+              const isActive = (t) => t.estado === 'en_progreso' && (Date.now() - new Date(t.updated_at).getTime()) < H24;
+
+              const filtered = atlasTasks.filter(t => {
+                const matchesRecipient = taskFilter === 'all' || t.asignado_tipo === taskFilter || (taskFilter === 'computer' && !t.asignado_tipo);
+                let matchesStatus = true;
+                if (taskStatusFilter === 'en_progreso') matchesStatus = isActive(t);
+                else if (taskStatusFilter === 'estancada') matchesStatus = isStuck(t);
+                else if (taskStatusFilter === 'bloqueada') matchesStatus = t.estado === 'bloqueada';
+                else if (taskStatusFilter === 'pendiente') matchesStatus = t.estado === 'pendiente';
+                else if (taskStatusFilter === 'completado') matchesStatus = t.estado === 'completado';
+                return matchesRecipient && matchesStatus;
+              });
+
               if (filtered.length === 0) return (
                 <div className="text-center py-8 text-slate-500 text-xs">Sin tareas para este filtro.</div>
               );
+
               return filtered.map(t => {
                 const tipoIcon = t.tipo === 'operacional' ? '🔧' : '📋';
                 const tipoColor = t.tipo === 'operacional'
@@ -1023,9 +1086,15 @@ export const MissionControlLive = () => {
                     showDoneButton = true;
                   }
                 } else if (t.estado === 'en_progreso') {
-                  statusText = '⏳ En progreso';
-                  statusColor = 'text-blue-400';
-                  statusBg = 'bg-blue-500/10 border-blue-500/20';
+                  if (isStuck(t)) {
+                    statusText = '🟡 Estancada';
+                    statusColor = 'text-amber-400';
+                    statusBg = 'bg-amber-500/10 border-amber-500/20';
+                  } else {
+                    statusText = '🟢 Activa';
+                    statusColor = 'text-emerald-400';
+                    statusBg = 'bg-emerald-500/10 border-emerald-500/20';
+                  }
                   showDoneButton = true;
                 }
 
@@ -1073,6 +1142,9 @@ export const MissionControlLive = () => {
                       <span className={`px-2 py-0.5 text-[8px] font-black rounded border ${destColor}`}>{destLabel}</span>
                       {t.asignado_a && t.asignado_a !== destLabel.replace(/^[^ ]+ /, '') && (
                         <span className="text-[9px] text-slate-500">→ {t.asignado_a}</span>
+                      )}
+                      {t.ejecutor && (
+                        <span className="px-2 py-0.5 text-[8px] font-black rounded border bg-blue-950/40 border-blue-800 text-blue-300">Ejecutor: {t.ejecutor}</span>
                       )}
                       {t.cerrado_por && (
                         <span className="text-[9px] text-emerald-500">Cerrado por: {t.cerrado_por}</span>
