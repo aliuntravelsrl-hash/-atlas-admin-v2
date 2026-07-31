@@ -8,12 +8,13 @@ Este manual documenta la implementación de la taxonomía de bloqueo de tareas d
 ## 📌 1. Control de Cambios y Versiones
 *   **Proyecto:** `-atlas-admin-v2` (Panel Administrativo Interno)
 *   **Componentes Afectados:**
+    *   `src/utils/ovrInterpreter.js`: [NUEVO] Mapea descripciones en Markdown/YAML o payloads estructurados JSONB a la especificación OVR Schema v1.
+    *   `src/components/marketing/MissionControlLive.jsx`: Integración del renderizado de contratos OVR con vistas colapsables de diff, caso de prueba y línea de tiempo de ciclo de vida de 7 estados.
     *   `src/components/marketing/AtlasExecutionPulse.jsx`: Ajuste de contador dinámico de tareas activas (`en_progreso` sin estancamiento).
-    *   `src/components/marketing/MissionControlLive.jsx`: Doble nivel de filtros (por rol y por estado de ejecución), badges de ejecutor en tarjetas de tareas y listado interactivo de agentes con su tarea activa actual.
     *   `src/components/marketing/WarRoomV50.jsx`: Mapeo y renderizado de agentes online/busy y visualización de su tarea actual.
     *   `src/components/marketing/mission-control/SwarmMonitor.jsx`: Corrección en el mapeo de estados de agentes basados en el heartbeat de Supabase.
-*   **Versión Anterior:** `0.2.0`
-*   **Versión Nueva:** `0.2.1`
+*   **Versión Anterior:** `0.2.1`
+*   **Versión Nueva:** `0.3.0` (Hito OVR Contract v1)
 *   **Fecha de Implementación:** 31 de Julio de 2026
 *   **Desarrollador / Agente:** Antigravity (Advanced Agentic Coding Team)
 
@@ -65,5 +66,21 @@ En su lugar, se implementó el **Bypassed Parsing Pattern** (Patrón de Extracci
 
 ---
 
-## 🔍 5. Auditoría del Script de Limpieza
-Las 37 tareas estancadas fueron saneadas de forma masiva ejecutando la reclasificación utilizando credenciales de `service_role` para evadir políticas de RLS restrictivas. Las tareas huérfanas o redundantes de marketing y desarrollo se retornaron a estado `pendiente` con sprint `backlog` para no consumir recursos del Swarm de forma innecesaria.
+## 📜 5. Intérprete y Renderizado de Contratos OVR v1
+Se implementó la **Fase I (Compatibilidad)** de la transición del COS al Swarm Control Center:
+
+1.  **Intérprete de Contratos (`src/utils/ovrInterpreter.js`):**
+    *   Mapea descripciones en Markdown/YAML o payloads JSONB al esquema canónico **OVR Schema v1**.
+    *   Extrae automáticamente secciones constitucionales (`1_problema_detectado`, `2_datos_reales_caso_prueba`, `3_incorrecto_vs_correcto`, `4_causa_probable`, `5_archivos_a_revisar` y `6_flujo_promocion`).
+    *   Mapea badges de capacidades (`CAP-XXX`) buscando concordancias en códigos, títulos y textos de forma tolerante a fallas.
+2.  **Visualización Premium (Mission Control):**
+    *   Botón interactivo de despliegue (`⚡ Ver Contrato OVR`).
+    *   **Problemas y Causas:** Fondos estilizados de diagnóstico (`rose/violet` transparentes con bordes definidos).
+    *   **Caso de Prueba:** Editor embebido simulado de lectura con scroll vertical y fuente monoespaciada de alta legibilidad.
+    *   **Incorrecto vs Correcto (git-diff):** Vista paralela en dos columnas (rojo/verde) emulando pull requests modernos.
+    *   **Línea de Tiempo del Ciclo de Vida:** Stepper secuencial de 7 estados (`created` ➔ `validated` ➔ `dispatched` ➔ `started` ➔ `completed` ➔ `verified` ➔ `certified`) coloreado dinámicamente según el estado actual de la tarea en Supabase.
+
+---
+
+## 🔍 6. Auditoría del Script de Saneamiento
+Las tareas estancadas y de prueba anteriores se reclasificaron de forma segura en la base de datos Supabase, y el módulo de transpilación Vite construyó de forma limpia la versión `0.3.0` del panel administrativo para su despliegue y validación por la dirección en [http://localhost:5173/mission](http://localhost:5173/mission).

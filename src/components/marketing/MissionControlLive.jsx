@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import AtlasExecutionPulse from './AtlasExecutionPulse';
 import DependencyIntelligence from './mission-control/DependencyIntelligence';
+import { interpretOVRContract } from '../../utils/ovrInterpreter';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -138,6 +139,9 @@ export const MissionControlLive = () => {
   // NUEVA: Stale payments
   const [stalePayments,    setStalePayments]    = useState([]);
   const [staleLastFetched, setStaleLastFetched] = useState(null);
+
+  // OVR Contract Expanded States
+  const [expandedOvrTasks, setExpandedOvrTasks] = useState({});
 
   // NUEVA: Revenue rápido
   const [revenueStats, setRevenueStats] = useState(null);
@@ -1127,9 +1131,179 @@ export const MissionControlLive = () => {
                     <p className="text-xs text-white font-semibold leading-snug">{t.titulo}</p>
 
                     {/* Descripción (si existe) */}
-                    {t.descripcion && (
+                    {t.descripcion && !expandedOvrTasks[t.codigo] && (
                       <p className="text-[10px] text-slate-400 leading-relaxed border-l-2 border-slate-800 pl-2">{t.descripcion}</p>
                     )}
+
+                    {/* Toggle Contrato OVR */}
+                    {(t.descripcion || t.resultado_estructurado) && (
+                      <button
+                        onClick={() => setExpandedOvrTasks(p => ({ ...p, [t.codigo]: !p[t.codigo] }))}
+                        className="text-[9px] text-blue-400 hover:text-blue-300 font-bold flex items-center gap-1 select-none w-fit border border-blue-500/20 hover:border-blue-500/40 bg-blue-950/20 px-2 py-0.5 rounded transition"
+                      >
+                        ⚡ {expandedOvrTasks[t.codigo] ? 'Colapsar Contrato OVR' : 'Ver Contrato OVR'}
+                      </button>
+                    )}
+
+                    {/* Vista Expandida del Contrato OVR */}
+                    {expandedOvrTasks[t.codigo] && (() => {
+                      const ovr = interpretOVRContract(t);
+                      if (!ovr || ovr.isLegacy) {
+                        return (
+                          <div className="p-3 bg-slate-900/40 rounded-lg border border-slate-850 text-[10px] space-y-2 mt-1">
+                            <div className="text-[8px] font-black uppercase text-amber-500">⚠️ Modo Compatibilidad Legado (Legacy)</div>
+                            {t.descripcion && (
+                              <p className="text-slate-300 leading-relaxed whitespace-pre-wrap">{t.descripcion}</p>
+                            )}
+                            <div className="text-slate-500 text-[8px] uppercase font-bold pt-1.5 border-t border-slate-800">
+                              No se detectaron bloques de contrato estructurado según OVR-SCHEMA-v1.
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      const stages = ['created', 'validated', 'dispatched', 'started', 'completed', 'verified', 'certified'];
+                      let currentStageIndex = 0;
+                      if (t.estado === 'pendiente') currentStageIndex = 1;
+                      else if (t.estado === 'en_progreso') currentStageIndex = 3;
+                      else if (t.estado === 'completado') {
+                        currentStageIndex = (t.cerrado_por && t.evidencia_url) ? 6 : 4;
+                      }
+
+                      return (
+                        <div className="p-3.5 bg-slate-900/60 rounded-xl border border-slate-800 text-[11px] space-y-3 mt-1 text-slate-300 w-full">
+                          {/* Cabecera del Contrato */}
+                          <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-1">
+                            <div>
+                              <div className="text-[8px] font-black uppercase text-blue-400 tracking-wider">📜 OVR CONTRACT IDENTITY</div>
+                              <div className="text-white font-bold text-xs font-mono">{ovr.identity.id}</div>
+                            </div>
+                            {ovr.capability.id && (
+                              <span className="px-2 py-0.5 text-[8px] font-black rounded-md bg-violet-500/10 border border-violet-500/20 text-violet-400 font-mono">
+                                Capability: {ovr.capability.id}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Ownership & Knowledge */}
+                          <div className="grid grid-cols-2 gap-2 text-[9px] bg-slate-950/40 p-2 rounded-md border border-slate-850">
+                            <div>
+                              <span className="text-slate-500 font-bold uppercase block text-[8px]">Propiedad & Despacho</span>
+                              <span>Autorizó: <span className="text-slate-300 font-semibold">{ovr.ownership.authorizedBy || 'N/A'}</span></span>
+                              <br />
+                              <span>Encargó: <span className="text-slate-300 font-semibold">{ovr.ownership.requestedBy || 'N/A'}</span></span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 font-bold uppercase block text-[8px]">Cognición del Agente</span>
+                              <span>KBP Frente: <span className="text-slate-300 font-semibold">{ovr.knowledge.kbp}</span></span>
+                              <br />
+                              <span>Ejecutor: <span className="text-slate-300 font-semibold">{ovr.knowledge.agent || 'N/A'}</span></span>
+                            </div>
+                          </div>
+
+                          {/* Execution Blocks */}
+                          <div className="space-y-2">
+                            {/* Problema Detectado */}
+                            {ovr.execution.problem && (
+                              <div className="p-2.5 bg-rose-500/5 border border-rose-500/15 rounded-lg text-rose-200/90 leading-relaxed">
+                                <span className="font-bold text-[8px] uppercase tracking-wider block text-rose-400 mb-1">⚠️ 1_problema_detectado</span>
+                                {ovr.execution.problem}
+                              </div>
+                            )}
+
+                            {/* Caso de Prueba / Datos Reales */}
+                            {ovr.execution.testCase && (
+                              <div className="p-2.5 bg-slate-950 border border-slate-850 rounded-lg font-mono text-[9px] text-slate-300 leading-relaxed">
+                                <span className="font-sans font-bold text-[8px] uppercase tracking-wider block text-slate-500 mb-1">📋 2_datos_reales_caso_prueba</span>
+                                <pre className="whitespace-pre-wrap max-h-40 overflow-y-auto font-mono text-blue-300/90">{ovr.execution.testCase}</pre>
+                              </div>
+                            )}
+
+                            {/* Comparativo Incorrecto vs Correcto (git-diff style) */}
+                            {(ovr.execution.incorrect || ovr.execution.correct) && (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                <div className="p-2.5 bg-rose-950/15 border border-rose-900/20 rounded-lg text-rose-300/95 leading-relaxed">
+                                  <span className="font-bold text-[8px] uppercase tracking-wider block text-rose-500 mb-1">❌ 3_incorrecto (Actual)</span>
+                                  {ovr.execution.incorrect || 'No especificado.'}
+                                </div>
+                                <div className="p-2.5 bg-emerald-950/15 border border-emerald-900/20 rounded-lg text-emerald-300/95 leading-relaxed">
+                                  <span className="font-bold text-[8px] uppercase tracking-wider block text-emerald-500 mb-1">✔️ 3_correcto (Esperado)</span>
+                                  {ovr.execution.correct || 'No especificado.'}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Causa Probable */}
+                            {ovr.execution.probableCause && (
+                              <div className="p-2.5 bg-violet-950/15 border border-violet-900/20 rounded-lg text-violet-300/90 leading-relaxed">
+                                <span className="font-bold text-[8px] uppercase tracking-wider block text-violet-400 mb-1">💡 4_causa_probable</span>
+                                {ovr.execution.probableCause}
+                              </div>
+                            )}
+
+                            {/* Archivos a Revisar */}
+                            {ovr.execution.filesToReview && ovr.execution.filesToReview.length > 0 && (
+                              <div className="p-2.5 bg-slate-950 border border-slate-850 rounded-lg text-slate-300 leading-relaxed">
+                                <span className="font-sans font-bold text-[8px] uppercase tracking-wider block text-slate-500 mb-1">📂 5_archivos_a_revisar</span>
+                                <div className="flex flex-col gap-1.5">
+                                  {ovr.execution.filesToReview.map((file, i) => (
+                                    <div key={i} className="flex items-center gap-1.5 font-mono text-[9px]">
+                                      <span className="text-slate-600">📄</span>
+                                      <span className="text-blue-400 font-semibold select-all">{file}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Decision & Evidence */}
+                          {(ovr.decision.rationale || ovr.evidence.result) && (
+                            <div className="p-2.5 bg-slate-950 border border-slate-850 rounded-lg text-[10px] space-y-1.5 text-slate-400">
+                              {ovr.decision.rationale && (
+                                <div>
+                                  <span className="font-bold text-[8px] uppercase text-slate-500 block">🧠 Rationale (Dispatcher)</span>
+                                  {ovr.decision.rationale}
+                                </div>
+                              )}
+                              {ovr.evidence.result && (
+                                <div className="pt-1.5 border-t border-slate-850">
+                                  <span className="font-bold text-[8px] uppercase text-emerald-500 block">✅ Evidencia de Resolución</span>
+                                  {ovr.evidence.result}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Lifecycle Stepper */}
+                          <div className="pt-3.5 border-t border-slate-800">
+                            <span className="font-bold text-[8px] uppercase tracking-wider block text-slate-500 mb-2">🔄 6_flujo_promocion (Ciclo de Vida OVR)</span>
+                            <div className="flex items-center justify-between gap-1 overflow-x-auto pb-1">
+                              {stages.map((stage, idx) => {
+                                const isActive = idx <= currentStageIndex;
+                                const isCurrent = idx === currentStageIndex;
+                                return (
+                                  <div key={stage} className="flex flex-col items-center flex-1 min-w-[55px]">
+                                    <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-black border transition ${
+                                      isCurrent ? 'bg-blue-500 border-blue-400 text-white shadow-[0_0_8px_rgba(59,130,246,0.5)]' :
+                                      isActive ? 'bg-emerald-950 border-emerald-500 text-emerald-400' :
+                                      'bg-slate-950 border-slate-800 text-slate-600'
+                                    }`}>
+                                      {idx + 1}
+                                    </div>
+                                    <span className={`text-[8px] font-bold mt-1.5 uppercase tracking-tight text-center ${
+                                      isCurrent ? 'text-blue-400 font-black' :
+                                      isActive ? 'text-emerald-500' :
+                                      'text-slate-600'
+                                    }`}>{stage}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Bloqueo reason */}
                     {t.bloqueado && t.bloqueo_razon && (
