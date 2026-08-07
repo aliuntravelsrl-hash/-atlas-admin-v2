@@ -52,6 +52,18 @@ export const MarketingOffersPanel = () => {
     }
   };
 
+  const handleApprove = async (offerId) => {
+    if (!confirm('¿Aprobar institucionalmente esta oferta? Queda registrado quién y cuándo.')) return;
+    try {
+      const approvedBy = window.currentUser?.email || window.currentUser?.name || 'director';
+      await marketingService.approveOffer(offerId, approvedBy);
+      await loadData(); // Recargar datos
+    } catch (error) {
+      console.error('Error approving offer:', error);
+      alert('Error al aprobar oferta');
+    }
+  };
+
   const handleDelete = async (offerId) => {
     if (!confirm('¿Está seguro de eliminar esta oferta?')) return;
     
@@ -212,6 +224,7 @@ export const MarketingOffersPanel = () => {
                   offer={offer}
                   onToggleStatus={handleToggleStatus}
                   onDelete={handleDelete}
+                  onApprove={handleApprove}
                   onEdit={() => navigate(`/marketing/offers/${offer.id}/edit`)}
                 />
               ))}
@@ -223,7 +236,7 @@ export const MarketingOffersPanel = () => {
   );
 };
 
-const OfferRow = ({ offer, onToggleStatus, onDelete, onEdit }) => {
+const OfferRow = ({ offer, onToggleStatus, onDelete, onApprove, onEdit }) => {
   const navigate = useNavigate();
   const [metrics, setMetrics] = useState(null);
 
@@ -259,6 +272,12 @@ const OfferRow = ({ offer, onToggleStatus, onDelete, onEdit }) => {
         {isExpired && (
           <span className="block text-[10px] text-red-600 mt-1 font-semibold">⏰ Expirada</span>
         )}
+        {/* Estado institucional (Dual State) - independiente del operativo de arriba */}
+        <span className={`block text-[10px] mt-1 font-semibold ${
+          offer.approval_status === 'approved' ? 'text-blue-600' : 'text-amber-600'
+        }`}>
+          {offer.approval_status === 'approved' ? '🏛️ Aprobada' : '🏛️ Sin aprobar'}
+        </span>
       </td>
 
       {/* Oferta */}
@@ -338,6 +357,15 @@ const OfferRow = ({ offer, onToggleStatus, onDelete, onEdit }) => {
       {/* Acciones */}
       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
         <div className="flex gap-1.5">
+          {offer.approval_status !== 'approved' && (
+            <button
+              onClick={() => onApprove(offer.id)}
+              className="p-1.5 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+              title="Aprobar institucionalmente (Dual State)"
+            >
+              🏛️
+            </button>
+          )}
           <button
             onClick={() => onToggleStatus(offer.id, offer.is_active)}
             className={`p-1.5 rounded transition-colors ${
