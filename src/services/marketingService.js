@@ -216,6 +216,38 @@ export const marketingService = {
   },
 
   /**
+   * Aprobar oferta institucionalmente (Dual State - MKT-DUALSTATE-001)
+   * Distinto de is_active/is_published (estado operativo): esto escribe
+   * el estado INSTITUCIONAL real (approval_status), que hasta hoy nunca
+   * se conectaba desde este panel (OBS-026, MKT-APPROVAL-UI-GAP-001).
+   * @param {string} offerId - UUID de la oferta
+   * @param {string} approvedBy - identificador de quien aprueba (ej. email/nombre del Director)
+   * @returns {Promise<Object>} Oferta actualizada
+   */
+  async approveOffer(offerId, approvedBy) {
+    try {
+      const { data, error } = await supabase
+        .from('marketing_offers')
+        .update({
+          approval_status: 'approved',
+          approved_by: approvedBy,
+          approved_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', offerId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return data;
+    } catch (error) {
+      console.error('Error in approveOffer:', error);
+      throw error;
+    }
+  },
+
+  /**
    * Incrementar stock vendido
    * @param {string} offerId - UUID de la oferta
    * @param {number} quantity - Cantidad vendida (default 1)
