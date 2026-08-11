@@ -164,8 +164,46 @@ function saveSection(key, lines, blocks) {
   }
 }
 
+function calculateConfidence(ovr) {
+  let score = 0;
+  // 1. KBP validation (knowledge base presence)
+  if (ovr.knowledge.kbp && ovr.knowledge.kbp !== 'General') {
+    score += 40;
+  } else if (ovr.knowledge.kbp === 'General') {
+    score += 20;
+  }
+  
+  // 2. Dependencies safety
+  if (ovr.dependencies.blocked) {
+    score += 0;
+  } else {
+    score += 30;
+    if (!ovr.dependencies.dependsOn) {
+      score += 10;
+    }
+  }
+  
+  // 3. Evidence completeness
+  if (ovr.evidence.url) {
+    score += 20;
+  }
+  if (ovr.evidence.result) {
+    score += 10;
+  }
+  
+  return Math.min(score, 100);
+}
+
+function getResolverChain(capId, structuredResolverChain) {
+  if (structuredResolverChain) return structuredResolverChain;
+  if (!capId) return null;
+  const num = capId.replace('CAP-', '');
+  return `${capId} ➔ SPEC-${num} ➔ POI ➔ ONP ➔ COS ➔ Constitución`;
+}
+
 function mapOVRStructure(task, parsed) {
-  return {
+  const capId = extractCapabilityId(task.codigo, task.titulo, task.descripcion);
+  const mapped = {
     isLegacy: false,
     identity: {
       id: task.codigo,
@@ -173,46 +211,58 @@ function mapOVRStructure(task, parsed) {
       type: task.tipo || 'proyecto'
     },
     ownership: {
-      authorizedBy: task.autorizado_por || null,
-      requestedBy: task.encargado_por || null
+      authorizedBy: task.autorizado_por || parsed.ownership?.authorizedBy || parsed.authorized_by || null,
+      requestedBy: task.encargado_por || parsed.ownership?.requestedBy || parsed.requested_by || null
     },
     capability: {
-      // Buscar CAP-XXX en el código o descripción
-      id: extractCapabilityId(task.codigo, task.titulo, task.descripcion)
+      id: capId,
+      resolverChain: getResolverChain(capId, parsed.capability?.resolverChain || parsed.resolver_chain || parsed.resolverChain)
     },
     knowledge: {
-      kbp: task.frente || 'General',
-      agent: task.ejecutor || null
+      kbp: task.frente || parsed.knowledge?.kbp || 'General',
+      agent: task.ejecutor || parsed.knowledge?.agent || null
     },
     execution: {
       problem: parsed.problem || parsed['1_problema_detectado'] || null,
       testCase: parsed.testCase || parsed['2_datos_reales_caso_prueba'] || parsed['2_datos_reales'] || null,
-      incorrect: parsed.incorrect || (parsed['3_incorrecto_vs_correcto'] && parsed['3_incorrecto_vs_correcto'].incorrecto) || null,
-      correct: parsed.correct || (parsed['3_incorrecto_vs_correcto'] && parsed['3_incorrecto_vs_correcto'].correcto) || null,
+      incorrect: parsed.incorrect || (parsed['3_incorrecto_vs_correcto'] && parsed['3_incorrecto_vs_correcto'].incorrecto) || parsed.incorrect_code || null,
+      correct: parsed.correct || (parsed['3_incorrecto_vs_correcto'] && parsed['3_incorrecto_vs_correcto'].correcto) || parsed.correct_code || null,
       probableCause: parsed.probableCause || parsed['4_causa_probable'] || null,
-      filesToReview: parsed.filesToReview || parsed['5_archivos_a_revisar'] || []
+      filesToReview: parsed.filesToReview || parsed['5_archivos_a_revisar'] || parsed.files_to_review || []
     },
     dependencies: {
-      blocked: task.bloqueado || false,
-      reason: task.bloqueo_razon || null,
-      dependsOn: task.depende_de || null
+      blocked: task.bloqueado || parsed.dependencies?.blocked || false,
+      reason: task.bloqueo_razon || parsed.dependencies?.reason || null,
+      dependsOn: task.depende_de || parsed.dependencies?.dependsOn || parsed.depends_on || null
     },
     evidence: {
-      url: task.evidencia_url || null,
-      result: task.resultado || null
+      url: task.evidencia_url || parsed.evidence?.url || parsed.evidencia_url || null,
+      result: task.resultado || parsed.evidence?.result || parsed.resultado_ejecucion || null
     },
     governance: {
-      activeProtocols: task.workflow_id ? [task.workflow_id] : [],
-      architectureOwner: task.responsable_arquitectura || 'ATLAS-TECH'
+      activeProtocols: task.workflow_id ? [task.workflow_id] : (parsed.governance?.activeProtocols || []),
+      architectureOwner: task.responsable_arquitectura || parsed.governance?.architectureOwner || 'ATLAS-TECH'
     },
     decision: {
-      rationale: task.notas || null
+      rationale: task.notas || parsed.decision?.rationale || parsed.notes || null,
+      source: parsed.decision?.source || parsed.decision_source || 'Director-Manual',
+      isEmergencyBypass: parsed.decision?.isEmergencyBypass || parsed.emergency_bypass || false
+    },
+    fingerprint: {
+      knowledgeHash: parsed.fingerprint?.knowledgeHash || parsed.knowledge_hash || 'Pending',
+      bundleHash: parsed.fingerprint?.bundleHash || parsed.bundle_hash || 'Pending',
+      manifestVersion: parsed.fingerprint?.manifestVersion || parsed.manifest_version || 'COS-v3.5',
+      ovrVersion: parsed.fingerprint?.ovrVersion || parsed.ovr_version || 'OVR-v2.0',
+      kbpVersion: parsed.fingerprint?.kbpVersion || parsed.kbp_version || 'KBP-v1.0'
     },
     lifecycle: {
       state: task.estado,
       updated_at: task.updated_at
     }
   };
+
+  mapped.confidence = calculateConfidence(mapped);
+  return mapped;
 }
 
 function extractCapabilityId(code, title, desc) {

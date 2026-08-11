@@ -332,7 +332,7 @@ export const MissionControlLive = () => {
 
         const { data: fetchedTasks } = await supabase
           .from('atlas_tasks')
-          .select('codigo, titulo, descripcion, asignado_a, asignado_tipo, prioridad, estado, tipo, frente, sprint, bloqueado, bloqueo_razon, updated_at, ejecutor, responsable_arquitectura, depende_de, cerrado_por, evidencia_url')
+          .select('*')
           .not('estado', 'eq', 'archivado')
           .order('fecha_encargo', { ascending: false });
         setAtlasTasks(fetchedTasks || []);
@@ -462,7 +462,7 @@ export const MissionControlLive = () => {
       // Refrescar lista
       const { data: fetchedTasks } = await supabase
         .from('atlas_tasks')
-        .select('codigo, titulo, descripcion, asignado_a, asignado_tipo, prioridad, estado, tipo, frente, sprint, bloqueado, bloqueo_razon, updated_at, ejecutor, responsable_arquitectura, depende_de')
+        .select('*')
         .not('estado', 'in', '("completado","archivado")')
         .order('fecha_encargo', { ascending: false });
       setAtlasTasks(fetchedTasks || []);
@@ -1171,11 +1171,11 @@ export const MissionControlLive = () => {
                       }
 
                       return (
-                        <div className="p-3.5 bg-slate-900/60 rounded-xl border border-slate-800 text-[11px] space-y-3 mt-1 text-slate-300 w-full">
+                        <div className="p-3.5 bg-slate-900/60 rounded-xl border border-slate-800 text-[11px] space-y-3 mt-1 text-slate-300 w-full animate-fade-in">
                           {/* Cabecera del Contrato */}
                           <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-1">
                             <div>
-                              <div className="text-[8px] font-black uppercase text-blue-400 tracking-wider">⚡ OVR EVIDENCE CARD</div>
+                              <div className="text-[8px] font-black uppercase text-blue-400 tracking-wider">⚡ OVR EVIDENCE CARD v2</div>
                               <div className="text-white font-bold text-xs font-mono">{ovr.identity.id}</div>
                             </div>
                             <div className="flex gap-1.5 items-center">
@@ -1189,6 +1189,45 @@ export const MissionControlLive = () => {
                                   Capability: {ovr.capability.id}
                                 </span>
                               )}
+                            </div>
+                          </div>
+
+                          {/* Resolver Chain */}
+                          {ovr.capability.resolverChain && (
+                            <div className="p-2 bg-slate-950/50 border border-slate-850 rounded-lg text-[9px] font-mono text-slate-400 flex items-center gap-1 overflow-x-auto whitespace-nowrap">
+                              <span className="text-slate-500 font-bold uppercase text-[7.5px] mr-1">⛓️ Resolver Chain:</span>
+                              <span className="text-violet-400 font-bold select-all">{ovr.capability.resolverChain}</span>
+                            </div>
+                          )}
+
+                          {/* Evidence Confidence Bar */}
+                          <div className="p-2.5 bg-slate-950/40 border border-slate-850 rounded-lg flex items-center justify-between gap-4 text-[9px]">
+                            <div className="flex-1">
+                              <div className="flex justify-between items-center mb-1">
+                                <span className="text-slate-500 font-bold uppercase text-[8px]">📈 Evidence Confidence</span>
+                                <span className={`font-bold ${
+                                  ovr.confidence >= 80 ? 'text-emerald-400' :
+                                  ovr.confidence >= 50 ? 'text-amber-400' : 'text-rose-400'
+                                }`}>{ovr.confidence}%</span>
+                              </div>
+                              <div className="w-full bg-slate-900 rounded-full h-1.5 border border-slate-800">
+                                <div 
+                                  className={`h-full rounded-full transition-all duration-500 ${
+                                    ovr.confidence >= 80 ? 'bg-emerald-500' :
+                                    ovr.confidence >= 50 ? 'bg-amber-500' : 'bg-rose-500'
+                                  }`} 
+                                  style={{ width: `${ovr.confidence}%` }}
+                                />
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${
+                                ovr.confidence >= 80 ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' :
+                                ovr.confidence >= 50 ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' :
+                                                       'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                              }`}>
+                                {ovr.confidence >= 80 ? 'HIGH' : ovr.confidence >= 50 ? 'MEDIUM' : 'LOW'} RISK
+                              </span>
                             </div>
                           </div>
 
@@ -1229,6 +1268,50 @@ export const MissionControlLive = () => {
                                   <span className="text-rose-300/80 truncate block max-w-full" title={ovr.dependencies.reason}>Razón: {ovr.dependencies.reason}</span>
                                 </>
                               )}
+                            </div>
+                          </div>
+
+                          {/* Section: Constitutional Fingerprint & Decision Provenance */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[9px]">
+                            {/* Constitutional Fingerprint */}
+                            <div className="p-2.5 bg-slate-950/40 border border-slate-850 rounded-lg space-y-1.5">
+                              <span className="font-sans font-bold text-[8px] uppercase tracking-wider block text-slate-500">🔑 Constitutional Fingerprint</span>
+                              <div className="space-y-1 font-mono text-slate-400">
+                                <div className="truncate animate-pulse-slow" title={ovr.fingerprint.knowledgeHash}>
+                                  <span className="text-slate-500 font-semibold">Knowledge Hash:</span>{' '}
+                                  <span className="text-blue-400 select-all">{ovr.fingerprint.knowledgeHash}</span>
+                                </div>
+                                <div className="truncate animate-pulse-slow" title={ovr.fingerprint.bundleHash}>
+                                  <span className="text-slate-500 font-semibold">Bundle Hash:</span>{' '}
+                                  <span className="text-blue-400 select-all">{ovr.fingerprint.bundleHash}</span>
+                                </div>
+                                <div className="flex justify-between text-[8px] pt-0.5">
+                                  <span>Manifest: <span className="text-slate-350 font-semibold">{ovr.fingerprint.manifestVersion}</span></span>
+                                  <span>OVR: <span className="text-slate-350 font-semibold">{ovr.fingerprint.ovrVersion}</span></span>
+                                  <span>KBP: <span className="text-slate-350 font-semibold">{ovr.fingerprint.kbpVersion}</span></span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Decision Provenance */}
+                            <div className="p-2.5 bg-slate-950/40 border border-slate-850 rounded-lg flex flex-col justify-between">
+                              <div>
+                                <span className="font-sans font-bold text-[8px] uppercase tracking-wider block text-slate-500 mb-1">⚖️ Decision Provenance</span>
+                                <div className="text-slate-400">
+                                  <span>Decision Source: <span className="text-slate-200 font-bold">{ovr.decision.source}</span></span>
+                                </div>
+                              </div>
+                              <div className="flex justify-end mt-2">
+                                {ovr.decision.isEmergencyBypass ? (
+                                  <span className="px-2 py-0.5 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-md font-extrabold uppercase text-[8px] animate-pulse">
+                                    ⚠️ Emergency Bypass
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-md font-extrabold uppercase text-[8px]">
+                                    Standard Governance
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
 
