@@ -14,7 +14,8 @@ export const SystemHealth = ({ healthData, loading, onSelectCard }) => {
     );
   }
 
-  const { cards = [], status = 'healthy' } = healthData || {};
+  const cards = healthData?.cards || [];
+  const status = healthData?.status || 'healthy';
   const currentStatus = HEALTH_STATUS_CONFIG[status] || HEALTH_STATUS_CONFIG.healthy;
   const StatusIcon = currentStatus.icon;
 

@@ -30,11 +30,9 @@ export const DependencyIntelligence = () => {
     );
   }
 
-  const {
-    stats = {},
-    cuellos_activos = [],
-    resueltos_recientes = []
-  } = data || {};
+  const stats = data?.stats || {};
+  const cuellos_activos = data?.cuellos_activos || [];
+  const resueltos_recientes = data?.resueltos_recientes || [];
 
   const {
     cuellos_activos_count = 0,

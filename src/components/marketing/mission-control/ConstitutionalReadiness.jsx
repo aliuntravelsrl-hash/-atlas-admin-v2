@@ -8,13 +8,11 @@ export const ConstitutionalReadiness = ({ data, loading }) => {
     );
   }
 
-  const {
-    gates = {},
-    dimensions = {},
-    blocking = [],
-    execution_enabled = false,
-    constitutional_readiness_pct = 0
-  } = data || {};
+  const gates = data?.gates || {};
+  const dimensions = data?.dimensions || {};
+  const blocking = data?.blocking || [];
+  const execution_enabled = data?.execution_enabled || false;
+  const constitutional_readiness_pct = data?.constitutional_readiness_pct || 0;
 
   const gateKeys = ['AGF', 'EVO', 'TPP', 'KBP', 'OVR', 'CRP'];
   const dimensionKeys = [
