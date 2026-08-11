@@ -332,7 +332,7 @@ export const MissionControlLive = () => {
 
         const { data: fetchedTasks } = await supabase
           .from('atlas_tasks')
-          .select('*')
+          .select('codigo, titulo, descripcion, asignado_a, asignado_tipo, prioridad, estado, tipo, frente, sprint, bloqueado, bloqueo_razon, updated_at, ejecutor, responsable_arquitectura, depende_de, cerrado_por, evidencia_url, autorizado_por, encargado_por, notas, resultado, workflow_id, resultado_estructurado')
           .not('estado', 'eq', 'archivado')
           .order('fecha_encargo', { ascending: false });
         setAtlasTasks(fetchedTasks || []);
@@ -462,7 +462,7 @@ export const MissionControlLive = () => {
       // Refrescar lista
       const { data: fetchedTasks } = await supabase
         .from('atlas_tasks')
-        .select('*')
+        .select('codigo, titulo, descripcion, asignado_a, asignado_tipo, prioridad, estado, tipo, frente, sprint, bloqueado, bloqueo_razon, updated_at, ejecutor, responsable_arquitectura, depende_de, cerrado_por, evidencia_url, autorizado_por, encargado_por, notas, resultado, workflow_id, resultado_estructurado')
         .not('estado', 'in', '("completado","archivado")')
         .order('fecha_encargo', { ascending: false });
       setAtlasTasks(fetchedTasks || []);
