@@ -1175,28 +1175,40 @@ export const MissionControlLive = () => {
                           {/* Cabecera del Contrato */}
                           <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-1">
                             <div>
-                              <div className="text-[8px] font-black uppercase text-blue-400 tracking-wider">⚡ OVR EVIDENCE CARD v2</div>
+                              <div className="text-[8px] font-black uppercase text-blue-400 tracking-wider flex items-center gap-1">
+                                ⚡ OVR EVIDENCE CARD v2
+                                <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase shrink-0">PERSISTED</span>
+                              </div>
                               <div className="text-white font-bold text-xs font-mono">{ovr.identity.id}</div>
                             </div>
                             <div className="flex gap-1.5 items-center">
                               {ovr.identity.type && (
-                                <span className="px-1.5 py-0.5 text-[8px] font-bold rounded bg-slate-800 border border-slate-700 text-slate-400 uppercase font-mono">
+                                <span className="px-1.5 py-0.5 text-[8px] font-bold rounded bg-slate-800 border border-slate-700 text-slate-400 uppercase font-mono flex items-center gap-1">
                                   {ovr.identity.type}
+                                  <span className="text-[5.5px] text-slate-500 font-mono font-bold ml-1">PERSISTED</span>
                                 </span>
                               )}
                               {ovr.capability.id && (
-                                <span className="px-2 py-0.5 text-[8px] font-black rounded-md bg-violet-500/10 border border-violet-500/20 text-violet-400 font-mono">
+                                <span className="px-2 py-0.5 text-[8px] font-black rounded-md bg-violet-500/10 border border-violet-500/20 text-violet-400 font-mono flex items-center gap-1">
                                   Capability: {ovr.capability.id}
+                                  <span className="bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase">DERIVED</span>
                                 </span>
                               )}
                             </div>
                           </div>
 
                           {/* Resolver Chain */}
-                          {ovr.capability.resolverChain && (
+                          {ovr.capability.resolverChain ? (
                             <div className="p-2 bg-slate-950/50 border border-slate-850 rounded-lg text-[9px] font-mono text-slate-400 flex items-center gap-1 overflow-x-auto whitespace-nowrap">
-                              <span className="text-slate-500 font-bold uppercase text-[7.5px] mr-1">⛓️ Resolver Chain:</span>
+                              <span className="text-slate-500 font-bold uppercase text-[7.5px] mr-1 shrink-0">⛓️ Resolver Chain:</span>
                               <span className="text-violet-400 font-bold select-all">{ovr.capability.resolverChain}</span>
+                              <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1.5 shrink-0">PERSISTED</span>
+                            </div>
+                          ) : (
+                            <div className="p-2 bg-slate-950/30 border border-slate-850 rounded-lg text-[9px] font-mono text-slate-500 flex items-center gap-1 overflow-x-auto whitespace-nowrap">
+                              <span className="text-slate-500 font-bold uppercase text-[7.5px] mr-1 shrink-0">⛓️ Resolver Chain:</span>
+                              <span className="italic text-slate-600">No trazada (sin persistencia en atlas_tasks)</span>
+                              <span className="bg-slate-800 border border-slate-700 text-slate-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1.5 shrink-0">UNKNOWN</span>
                             </div>
                           )}
 
@@ -1204,7 +1216,10 @@ export const MissionControlLive = () => {
                           <div className="p-2.5 bg-slate-950/40 border border-slate-850 rounded-lg flex items-center justify-between gap-4 text-[9px]">
                             <div className="flex-1">
                               <div className="flex justify-between items-center mb-1">
-                                <span className="text-slate-500 font-bold uppercase text-[8px]">📈 Evidence Confidence</span>
+                                <span className="text-slate-500 font-bold uppercase text-[8px] flex items-center gap-1">
+                                  📈 Evidence Confidence
+                                  <span className="bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase shrink-0">DERIVED</span>
+                                </span>
                                 <span className={`font-bold ${
                                   ovr.confidence >= 80 ? 'text-emerald-400' :
                                   ovr.confidence >= 50 ? 'text-amber-400' : 'text-rose-400'
@@ -1235,37 +1250,74 @@ export const MissionControlLive = () => {
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[9px] bg-slate-950/40 p-2 rounded-md border border-slate-850">
                             <div>
                               <span className="text-slate-500 font-bold uppercase block text-[8px] mb-0.5">👤 Dispatcher & Governance</span>
-                              <span>Autorizó: <span className="text-slate-300 font-semibold">{ovr.ownership.authorizedBy || 'N/A'}</span></span>
+                              <span>
+                                Autorizó: <span className="text-slate-300 font-semibold">{ovr.ownership.authorizedBy || 'N/A'}</span>
+                                <span className={ovr.ownership.authorizedBySource === 'PERSISTED' ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1 shrink-0' : 'bg-slate-800 border border-slate-700 text-slate-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1 shrink-0'}>
+                                  {ovr.ownership.authorizedBySource}
+                                </span>
+                              </span>
                               <br />
-                              <span>Encargó: <span className="text-slate-300 font-semibold">{ovr.ownership.requestedBy || 'N/A'}</span></span>
+                              <span>
+                                Encargó: <span className="text-slate-300 font-semibold">{ovr.ownership.requestedBy || 'N/A'}</span>
+                                <span className={ovr.ownership.requestedBySource === 'PERSISTED' ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1 shrink-0' : 'bg-slate-800 border border-slate-700 text-slate-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1 shrink-0'}>
+                                  {ovr.ownership.requestedBySource}
+                                </span>
+                              </span>
                               {ovr.governance.activeProtocols.length > 0 && (
                                 <>
                                   <br />
-                                  <span>Protocolo: <span className="text-blue-400 font-mono font-semibold">{ovr.governance.activeProtocols.join(', ')}</span></span>
+                                  <span>
+                                    Protocolo: <span className="text-blue-400 font-mono font-semibold">{ovr.governance.activeProtocols.join(', ')}</span>
+                                    <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1 shrink-0">PERSISTED</span>
+                                  </span>
                                 </>
                               )}
                             </div>
                             <div>
                               <span className="text-slate-500 font-bold uppercase block text-[8px] mb-0.5">🧠 Agent Knowledge</span>
-                              <span>KBP Frente: <span className="text-slate-300 font-semibold">{ovr.knowledge.kbp}</span></span>
+                              <span>
+                                KBP Frente: <span className="text-slate-300 font-semibold">{ovr.knowledge.kbp}</span>
+                                <span className={ovr.knowledge.kbpSource === 'PERSISTED' ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1 shrink-0' : 'bg-slate-800 border border-slate-700 text-slate-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1 shrink-0'}>
+                                  {ovr.knowledge.kbpSource}
+                                </span>
+                              </span>
                               <br />
-                              <span>Ejecutor: <span className="text-slate-300 font-semibold">{ovr.knowledge.agent || 'N/A'}</span></span>
+                              <span>
+                                Ejecutor: <span className="text-slate-300 font-semibold">{ovr.knowledge.agent || 'N/A'}</span>
+                                <span className={ovr.knowledge.agentSource === 'PERSISTED' ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1 shrink-0' : 'bg-slate-800 border border-slate-700 text-slate-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1 shrink-0'}>
+                                  {ovr.knowledge.agentSource}
+                                </span>
+                              </span>
                               <br />
-                              <span>Arquitecto: <span className="text-slate-400 font-semibold">{ovr.governance.architectureOwner}</span></span>
+                              <span>
+                                Arquitecto: <span className="text-slate-400 font-semibold">{ovr.governance.architectureOwner}</span>
+                                <span className={ovr.governance.architectureOwnerSource === 'PERSISTED' ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1 shrink-0' : 'bg-slate-800 border border-slate-700 text-slate-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1 shrink-0'}>
+                                  {ovr.governance.architectureOwnerSource}
+                                </span>
+                              </span>
                             </div>
                             <div>
                               <span className="text-slate-500 font-bold uppercase block text-[8px] mb-0.5">🔗 Dependencies</span>
-                              <span>Bloqueado: <span className={ovr.dependencies.blocked ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'}>{ovr.dependencies.blocked ? 'Sí' : 'No'}</span></span>
+                              <span>
+                                Bloqueado: <span className={ovr.dependencies.blocked ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'}>{ovr.dependencies.blocked ? 'Sí' : 'No'}</span>
+                                <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1 shrink-0">PERSISTED</span>
+                              </span>
                               {ovr.dependencies.dependsOn && (
                                 <>
                                   <br />
-                                  <span>Depende de: <span className="text-blue-400 font-mono font-semibold">{ovr.dependencies.dependsOn}</span></span>
+                                  <span>
+                                    Depende de: <span className="text-blue-400 font-mono font-semibold">{ovr.dependencies.dependsOn}</span>
+                                    <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1 shrink-0">PERSISTED</span>
+                                  </span>
                                 </>
                               )}
                               {ovr.dependencies.reason && (
                                 <>
                                   <br />
-                                  <span className="text-rose-300/80 truncate block max-w-full" title={ovr.dependencies.reason}>Razón: {ovr.dependencies.reason}</span>
+                                  <span className="text-rose-300/80 truncate block max-w-full" title={ovr.dependencies.reason}>
+                                    Razón: {ovr.dependencies.reason}
+                                    <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1 shrink-0">PERSISTED</span>
+                                  </span>
                                 </>
                               )}
                             </div>
@@ -1277,18 +1329,43 @@ export const MissionControlLive = () => {
                             <div className="p-2.5 bg-slate-950/40 border border-slate-850 rounded-lg space-y-1.5">
                               <span className="font-sans font-bold text-[8px] uppercase tracking-wider block text-slate-500">🔑 Constitutional Fingerprint</span>
                               <div className="space-y-1 font-mono text-slate-400">
-                                <div className="truncate animate-pulse-slow" title={ovr.fingerprint.knowledgeHash}>
-                                  <span className="text-slate-500 font-semibold">Knowledge Hash:</span>{' '}
-                                  <span className="text-blue-400 select-all">{ovr.fingerprint.knowledgeHash}</span>
+                                <div className="truncate animate-pulse-slow flex items-center justify-between" title={ovr.fingerprint.knowledgeHash}>
+                                  <div>
+                                    <span className="text-slate-500 font-semibold">Knowledge Hash:</span>{' '}
+                                    <span className="text-blue-400 select-all">{ovr.fingerprint.knowledgeHash}</span>
+                                  </div>
+                                  <span className={ovr.fingerprint.knowledgeHashSource === 'PERSISTED' ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase shrink-0' : 'bg-slate-800 border border-slate-700 text-slate-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase shrink-0'}>
+                                    {ovr.fingerprint.knowledgeHashSource}
+                                  </span>
                                 </div>
-                                <div className="truncate animate-pulse-slow" title={ovr.fingerprint.bundleHash}>
-                                  <span className="text-slate-500 font-semibold">Bundle Hash:</span>{' '}
-                                  <span className="text-blue-400 select-all">{ovr.fingerprint.bundleHash}</span>
+                                <div className="truncate animate-pulse-slow flex items-center justify-between" title={ovr.fingerprint.bundleHash}>
+                                  <div>
+                                    <span className="text-slate-500 font-semibold">Bundle Hash:</span>{' '}
+                                    <span className="text-blue-400 select-all">{ovr.fingerprint.bundleHash}</span>
+                                  </div>
+                                  <span className={ovr.fingerprint.bundleHashSource === 'PERSISTED' ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase shrink-0' : 'bg-slate-800 border border-slate-700 text-slate-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase shrink-0'}>
+                                    {ovr.fingerprint.bundleHashSource}
+                                  </span>
                                 </div>
                                 <div className="flex justify-between text-[8px] pt-0.5">
-                                  <span>Manifest: <span className="text-slate-350 font-semibold">{ovr.fingerprint.manifestVersion}</span></span>
-                                  <span>OVR: <span className="text-slate-350 font-semibold">{ovr.fingerprint.ovrVersion}</span></span>
-                                  <span>KBP: <span className="text-slate-350 font-semibold">{ovr.fingerprint.kbpVersion}</span></span>
+                                  <span>
+                                    Manifest: <span className="text-slate-350 font-semibold">{ovr.fingerprint.manifestVersion}</span>
+                                    <span className={ovr.fingerprint.manifestVersionSource === 'PERSISTED' ? 'text-emerald-550 font-bold ml-1' : 'text-slate-550 font-bold ml-1'}>
+                                      ({ovr.fingerprint.manifestVersionSource})
+                                    </span>
+                                  </span>
+                                  <span>
+                                    OVR: <span className="text-slate-350 font-semibold">{ovr.fingerprint.ovrVersion}</span>
+                                    <span className={ovr.fingerprint.ovrVersionSource === 'PERSISTED' ? 'text-emerald-550 font-bold ml-1' : 'text-slate-550 font-bold ml-1'}>
+                                      ({ovr.fingerprint.ovrVersionSource})
+                                    </span>
+                                  </span>
+                                  <span>
+                                    KBP: <span className="text-slate-350 font-semibold">{ovr.fingerprint.kbpVersion}</span>
+                                    <span className={ovr.fingerprint.kbpVersionSource === 'PERSISTED' ? 'text-emerald-550 font-bold ml-1' : 'text-slate-550 font-bold ml-1'}>
+                                      ({ovr.fingerprint.kbpVersionSource})
+                                    </span>
+                                  </span>
                                 </div>
                               </div>
                             </div>
@@ -1298,17 +1375,24 @@ export const MissionControlLive = () => {
                               <div>
                                 <span className="font-sans font-bold text-[8px] uppercase tracking-wider block text-slate-500 mb-1">⚖️ Decision Provenance</span>
                                 <div className="text-slate-400">
-                                  <span>Decision Source: <span className="text-slate-200 font-bold">{ovr.decision.source}</span></span>
+                                  <span>
+                                    Decision Source: <span className="text-slate-200 font-bold">{ovr.decision.source || 'N/A'}</span>
+                                    <span className={ovr.decision.sourceSource === 'PERSISTED' ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1 shrink-0' : 'bg-slate-800 border border-slate-700 text-slate-400 text-[5.5px] px-1 py-0.25 rounded font-mono font-bold uppercase ml-1 shrink-0'}>
+                                      {ovr.decision.sourceSource}
+                                    </span>
+                                  </span>
                                 </div>
                               </div>
-                              <div className="flex justify-end mt-2">
+                              <div className="flex justify-end mt-2 items-center gap-1.5">
                                 {ovr.decision.isEmergencyBypass ? (
                                   <span className="px-2 py-0.5 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-md font-extrabold uppercase text-[8px] animate-pulse">
                                     ⚠️ Emergency Bypass
+                                    <span className="text-[6.5px] text-rose-500 font-mono font-bold ml-1">PERSISTED</span>
                                   </span>
                                 ) : (
                                   <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-md font-extrabold uppercase text-[8px]">
                                     Standard Governance
+                                    <span className="text-[6.5px] text-emerald-500 font-mono font-bold ml-1">PERSISTED</span>
                                   </span>
                                 )}
                               </div>

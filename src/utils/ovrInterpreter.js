@@ -196,13 +196,26 @@ function calculateConfidence(ovr) {
 
 function getResolverChain(capId, structuredResolverChain) {
   if (structuredResolverChain) return structuredResolverChain;
-  if (!capId) return null;
-  const num = capId.replace('CAP-', '');
-  return `${capId} ➔ SPEC-${num} ➔ POI ➔ ONP ➔ COS ➔ Constitución`;
+  return null;
 }
 
 function mapOVRStructure(task, parsed) {
   const capId = extractCapabilityId(task.codigo, task.titulo, task.descripcion);
+
+  const hasAuthorizedBy = !!(task.autorizado_por || parsed.ownership?.authorizedBy || parsed.authorized_by);
+  const hasRequestedBy = !!(task.encargado_por || parsed.ownership?.requestedBy || parsed.requested_by);
+  const hasResolverChain = !!(parsed.capability?.resolverChain || parsed.resolver_chain || parsed.resolverChain);
+  const hasKbp = !!(task.frente || parsed.knowledge?.kbp);
+  const hasAgent = !!(task.ejecutor || parsed.knowledge?.agent);
+  const hasArchitectureOwner = !!(task.responsable_arquitectura || parsed.governance?.architectureOwner);
+  const hasKnowledgeHash = !!(parsed.fingerprint?.knowledgeHash || parsed.knowledge_hash);
+  const hasBundleHash = !!(parsed.fingerprint?.bundleHash || parsed.bundle_hash);
+  const hasManifestVersion = !!(parsed.fingerprint?.manifestVersion || parsed.manifest_version);
+  const hasOvrVersion = !!(parsed.fingerprint?.ovrVersion || parsed.ovr_version);
+  const hasKbpVersion = !!(parsed.fingerprint?.kbpVersion || parsed.kbp_version);
+  const hasDecisionSource = !!(parsed.decision?.source || parsed.decision_source);
+  const hasEmergencyBypass = !!(parsed.decision?.isEmergencyBypass || parsed.emergency_bypass);
+
   const mapped = {
     isLegacy: false,
     identity: {
@@ -212,15 +225,21 @@ function mapOVRStructure(task, parsed) {
     },
     ownership: {
       authorizedBy: task.autorizado_por || parsed.ownership?.authorizedBy || parsed.authorized_by || null,
-      requestedBy: task.encargado_por || parsed.ownership?.requestedBy || parsed.requested_by || null
+      authorizedBySource: hasAuthorizedBy ? 'PERSISTED' : 'UNKNOWN',
+      requestedBy: task.encargado_por || parsed.ownership?.requestedBy || parsed.requested_by || null,
+      requestedBySource: hasRequestedBy ? 'PERSISTED' : 'UNKNOWN'
     },
     capability: {
       id: capId,
-      resolverChain: getResolverChain(capId, parsed.capability?.resolverChain || parsed.resolver_chain || parsed.resolverChain)
+      idSource: capId ? 'DERIVED' : 'UNKNOWN',
+      resolverChain: parsed.capability?.resolverChain || parsed.resolver_chain || parsed.resolverChain || null,
+      resolverChainSource: hasResolverChain ? 'PERSISTED' : 'UNKNOWN'
     },
     knowledge: {
       kbp: task.frente || parsed.knowledge?.kbp || 'General',
-      agent: task.ejecutor || parsed.knowledge?.agent || null
+      kbpSource: hasKbp ? 'PERSISTED' : 'UNKNOWN',
+      agent: task.ejecutor || parsed.knowledge?.agent || null,
+      agentSource: hasAgent ? 'PERSISTED' : 'UNKNOWN'
     },
     execution: {
       problem: parsed.problem || parsed['1_problema_detectado'] || null,
@@ -232,28 +251,42 @@ function mapOVRStructure(task, parsed) {
     },
     dependencies: {
       blocked: task.bloqueado || parsed.dependencies?.blocked || false,
+      blockedSource: 'PERSISTED',
       reason: task.bloqueo_razon || parsed.dependencies?.reason || null,
-      dependsOn: task.depende_de || parsed.dependencies?.dependsOn || parsed.depends_on || null
+      reasonSource: (task.bloqueo_razon || parsed.dependencies?.reason) ? 'PERSISTED' : 'UNKNOWN',
+      dependsOn: task.depende_de || parsed.dependencies?.dependsOn || parsed.depends_on || null,
+      dependsOnSource: (task.depende_de || parsed.dependencies?.dependsOn || parsed.depends_on) ? 'PERSISTED' : 'UNKNOWN'
     },
     evidence: {
       url: task.evidencia_url || parsed.evidence?.url || parsed.evidencia_url || null,
-      result: task.resultado || parsed.evidence?.result || parsed.resultado_ejecucion || null
+      urlSource: (task.evidencia_url || parsed.evidence?.url || parsed.evidencia_url) ? 'PERSISTED' : 'UNKNOWN',
+      result: task.resultado || parsed.evidence?.result || parsed.resultado_ejecucion || null,
+      resultSource: (task.resultado || parsed.evidence?.result || parsed.resultado_ejecucion) ? 'PERSISTED' : 'UNKNOWN'
     },
     governance: {
       activeProtocols: task.workflow_id ? [task.workflow_id] : (parsed.governance?.activeProtocols || []),
-      architectureOwner: task.responsable_arquitectura || parsed.governance?.architectureOwner || 'ATLAS-TECH'
+      activeProtocolsSource: (task.workflow_id || parsed.governance?.activeProtocols) ? 'PERSISTED' : 'UNKNOWN',
+      architectureOwner: task.responsable_arquitectura || parsed.governance?.architectureOwner || 'ATLAS-TECH',
+      architectureOwnerSource: hasArchitectureOwner ? 'PERSISTED' : 'UNKNOWN'
     },
     decision: {
       rationale: task.notas || parsed.decision?.rationale || parsed.notes || null,
-      source: parsed.decision?.source || parsed.decision_source || 'Director-Manual',
-      isEmergencyBypass: parsed.decision?.isEmergencyBypass || parsed.emergency_bypass || false
+      source: parsed.decision?.source || parsed.decision_source || null,
+      sourceSource: hasDecisionSource ? 'PERSISTED' : 'UNKNOWN',
+      isEmergencyBypass: parsed.decision?.isEmergencyBypass || parsed.emergency_bypass || false,
+      isEmergencyBypassSource: hasEmergencyBypass ? 'PERSISTED' : 'UNKNOWN'
     },
     fingerprint: {
       knowledgeHash: parsed.fingerprint?.knowledgeHash || parsed.knowledge_hash || 'Pending',
+      knowledgeHashSource: hasKnowledgeHash ? 'PERSISTED' : 'UNKNOWN',
       bundleHash: parsed.fingerprint?.bundleHash || parsed.bundle_hash || 'Pending',
+      bundleHashSource: hasBundleHash ? 'PERSISTED' : 'UNKNOWN',
       manifestVersion: parsed.fingerprint?.manifestVersion || parsed.manifest_version || 'COS-v3.5',
+      manifestVersionSource: hasManifestVersion ? 'PERSISTED' : 'UNKNOWN',
       ovrVersion: parsed.fingerprint?.ovrVersion || parsed.ovr_version || 'OVR-v2.0',
-      kbpVersion: parsed.fingerprint?.kbpVersion || parsed.kbp_version || 'KBP-v1.0'
+      ovrVersionSource: hasOvrVersion ? 'PERSISTED' : 'UNKNOWN',
+      kbpVersion: parsed.fingerprint?.kbpVersion || parsed.kbp_version || 'KBP-v1.0',
+      kbpVersionSource: hasKbpVersion ? 'PERSISTED' : 'UNKNOWN'
     },
     lifecycle: {
       state: task.estado,
