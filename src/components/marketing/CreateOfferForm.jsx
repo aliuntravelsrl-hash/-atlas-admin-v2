@@ -121,14 +121,15 @@ export const CreateOfferForm = () => {
           title: formData.title,
           description: formData.description,
           base_cost: formData.base_cost,
-          base_price: formData.base_price,
+          original_price: formData.base_price,
           discount_percentage: formData.discount_percentage,
           payment_method: formData.payment_method,
           stock_total: formData.stock_total,
           valid_from: formData.valid_from,
           valid_until: formData.valid_until,
           offer_type: formData.offer_type,
-          is_active: true,
+          approval_status: 'draft',
+          publish_status: 'publicada',
           is_published: true
         })
         .select()
@@ -138,7 +139,7 @@ export const CreateOfferForm = () => {
         throw error;
       }
       
-      alert('✅ Oferta publicada exitosamente');
+      alert('✅ Oferta creada y publicada exitosamente (Pendiente de Aprobación Institucional)');
       navigate('/marketing/offers');
       
     } catch (error) {
@@ -154,7 +155,42 @@ export const CreateOfferForm = () => {
   };
 
   const handleSaveDraft = async () => {
-    alert('💾 Funcionalidad de borrador pendiente de implementar');
+    if (!formData.hotel_slug || !formData.title) {
+      alert('❌ Indique al menos el hotel y un título para guardar el borrador');
+      return;
+    }
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('marketing_offers')
+        .insert({
+          hotel_slug: formData.hotel_slug,
+          title: formData.title,
+          description: formData.description || '',
+          base_cost: formData.base_cost || 0,
+          original_price: formData.base_price || 0,
+          discount_percentage: formData.discount_percentage || 0,
+          payment_method: formData.payment_method || 'transferencia',
+          stock_total: formData.stock_total || 1,
+          valid_from: formData.valid_from,
+          valid_until: formData.valid_until,
+          offer_type: formData.offer_type || 'last_minute',
+          approval_status: 'draft',
+          publish_status: 'no_publicada',
+          is_published: false
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      alert('💾 Borrador guardado exitosamente (Estado: Borrador / No publicada)');
+      navigate('/marketing/offers');
+    } catch (error) {
+      console.error('Error saving draft:', error);
+      alert(`❌ Error al guardar borrador: ${error.message || error}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Calcular duración de la oferta

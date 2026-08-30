@@ -76,9 +76,9 @@ export const marketingService = {
       
       // Filtrar por estado
       if (options.status === 'active') {
-        query = query.eq('is_active', true);
+        query = query.eq('is_published', true);
       } else if (options.status === 'inactive') {
-        query = query.eq('is_active', false);
+        query = query.eq('is_published', false);
       }
       
       // Ordenar y paginar
@@ -194,12 +194,13 @@ export const marketingService = {
    * @param {boolean} isActive - Nuevo estado
    * @returns {Promise<Object>} Oferta actualizada
    */
-  async toggleOfferStatus(offerId, isActive) {
+  async toggleOfferStatus(offerId, isPublished) {
     try {
       const { data, error } = await supabase
         .from('marketing_offers')
         .update({ 
-          is_active: isActive,
+          is_published: isPublished,
+          publish_status: isPublished ? 'publicada' : 'pausada',
           updated_at: new Date().toISOString()
         })
         .eq('id', offerId)
@@ -217,28 +218,49 @@ export const marketingService = {
 
   /**
    * Aprobar oferta institucionalmente (Dual State - MKT-DUALSTATE-001)
-   * Distinto de is_active/is_published (estado operativo): esto escribe
-   * el estado INSTITUCIONAL real (approval_status), que hasta hoy nunca
-   * se conectaba desde este panel (OBS-026, MKT-APPROVAL-UI-GAP-001).
+   * Distinto de is_published/publish_status (estado operativo): esto escribe
+   * el estado INSTITUCIONAL real (approval_status) y persiste la evidencia
+   * en marketing_decision_evidence (MKT-DEP-001 / MARKETING-OFFER-CREATION-CONTRACT-001).
    * @param {string} offerId - UUID de la oferta
    * @param {string} approvedBy - identificador de quien aprueba (ej. email/nombre del Director)
    * @returns {Promise<Object>} Oferta actualizada
    */
   async approveOffer(offerId, approvedBy) {
     try {
+      const now = new Date().toISOString();
       const { data, error } = await supabase
         .from('marketing_offers')
         .update({
           approval_status: 'approved',
           approved_by: approvedBy,
-          approved_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          approved_at: now,
+          updated_at: now
         })
         .eq('id', offerId)
         .select()
         .single();
 
       if (error) throw error;
+
+      // Registrar evidencia de decisión institucional (MKT-DEP-001 / MARKETING-OFFER-CREATION-CONTRACT-001)
+      try {
+        await supabase
+          .from('marketing_decision_evidence')
+          .insert({
+            offer_id: offerId,
+            decision: 'approved',
+            decided_by: approvedBy,
+            authority_level: approvedBy === 'director' ? 'director' : 'authorized_operator',
+            evidence: {
+              action: 'institutional_approval',
+              source: 'atlas-admin-panel',
+              approved_at: now
+            },
+            decided_at: now
+          });
+      } catch (depErr) {
+        console.warn('Advertencia registrando marketing_decision_evidence:', depErr);
+      }
 
       return data;
     } catch (error) {
@@ -384,7 +406,7 @@ export const marketingService = {
       const { count: activeCount } = await supabase
         .from('marketing_offers')
         .select('*', { count: 'exact', head: true })
-        .eq('is_active', true);
+        .eq('is_published', true);
       
       const { count: totalCount } = await supabase
         .from('marketing_offers')
@@ -401,7 +423,7 @@ export const marketingService = {
       const { data: activeOffers } = await supabase
         .from('marketing_offers')
         .select('stock_total, stock_sold')
-        .eq('is_active', true);
+        .eq('is_published', true);
       
       const totalStockAvailable = (activeOffers || []).reduce((sum, offer) => {
         return sum + (offer.stock_total - (offer.stock_sold || 0));

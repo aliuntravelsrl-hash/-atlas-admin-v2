@@ -367,15 +367,15 @@ const OfferRow = ({ offer, onToggleStatus, onDelete, onApprove, onEdit }) => {
             </button>
           )}
           <button
-            onClick={() => onToggleStatus(offer.id, offer.is_active)}
+            onClick={() => onToggleStatus(offer.id, offer.is_published)}
             className={`p-1.5 rounded transition-colors ${
-              offer.is_active
+              offer.is_published
                 ? 'bg-orange-50 text-orange-600 hover:bg-orange-100'
                 : 'bg-green-50 text-green-600 hover:bg-green-100'
             }`}
-            title={offer.is_active ? 'Pausar oferta' : 'Activar oferta'}
+            title={offer.is_published ? 'Pausar oferta (Ocultar de la web)' : 'Publicar oferta (Visible en la web)'}
           >
-            {offer.is_active ? '⏸️' : '▶️'}
+            {offer.is_published ? '⏸️' : '▶️'}
           </button>
           
           <button
