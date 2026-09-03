@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import HotelCommercialProfileTab from './HotelCommercialProfileTab';
 
 export const IntegrityMonitor = () => {
   const [hotels, setHotels] = useState([]);
@@ -8,6 +9,7 @@ export const IntegrityMonitor = () => {
   const [auditResults, setAuditResults] = useState(null);
   const [loadingHotels, setLoadingHotels] = useState(true);
   const [auditing, setAuditing] = useState(false);
+  const [activeTab, setActiveTab] = useState('technical'); // 'technical' | 'commercial'
 
   useEffect(() => {
     loadHotels();
@@ -317,64 +319,96 @@ export const IntegrityMonitor = () => {
                 </div>
               </div>
 
-              {/* Barra de progreso */}
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs font-bold text-slate-400">
-                  <span>Porcentaje de Integridad Comercial</span>
-                  <span>{Math.round((auditResults.score / 7) * 100)}%</span>
-                </div>
-                <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden p-0.5 border border-slate-850">
-                  <div 
-                    className={`h-full rounded-full transition-all duration-500 ${
-                      auditResults.score === 7
-                        ? 'bg-gradient-to-r from-emerald-600 to-emerald-400'
-                        : auditResults.score >= 4
-                          ? 'bg-gradient-to-r from-amber-600 to-amber-400'
-                          : 'bg-gradient-to-r from-rose-600 to-rose-400'
-                    }`}
-                    style={{ width: `${(auditResults.score / 7) * 100}%` }}
-                  ></div>
-                </div>
+              {/* Selector de Pestañas de Alto Nivel */}
+              <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+                <button
+                  onClick={() => setActiveTab('technical')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                    activeTab === 'technical'
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
+                      : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-850'
+                  }`}
+                >
+                  <span>🛠️</span>
+                  <span>Integridad Técnica (Molde de Hierro)</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('commercial')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                    activeTab === 'commercial'
+                      ? 'bg-orange-600 text-white shadow-lg shadow-orange-500/20'
+                      : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-850'
+                  }`}
+                >
+                  <span>💼</span>
+                  <span>Relación Comercial B2B & ROI</span>
+                </button>
               </div>
 
-              {/* Tabla de Verificaciones */}
-              <div className="space-y-3">
-                <h4 className="font-bold text-slate-400 text-xs uppercase tracking-wider">Sellos del Molde de Hierro</h4>
-                
-                <div className="divide-y divide-slate-800/60 border border-slate-850 rounded-2xl overflow-hidden bg-slate-950">
-                  {auditResults.checks.map((check, index) => (
-                    <div key={index} className="flex items-center justify-between p-4 hover:bg-slate-900/50 transition">
-                      
-                      {/* Izquierda: Info check */}
-                      <div className="flex items-start gap-3">
-                        <span className="text-2xl mt-0.5">{check.icon}</span>
-                        <div>
-                          <div className="font-bold text-white text-sm">{check.name}</div>
-                          <div className="text-xs text-slate-400 mt-0.5 font-medium">{check.description}</div>
-                        </div>
-                      </div>
-
-                      {/* Derecha: Estado */}
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <span className="text-sm font-extrabold text-white">{check.current}</span>
-                          <span className="text-slate-500 text-xs"> / req: {check.required}</span>
-                        </div>
-                        <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-md border ${
-                          check.status === 'PASSED'
-                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
-                            : check.status === 'INCOMPLETE'
-                              ? 'bg-amber-500/10 border-amber-500/20 text-amber-500'
-                              : 'bg-rose-500/10 border-rose-500/20 text-rose-500'
-                        }`}>
-                          {check.status}
-                        </span>
-                      </div>
-
+              {activeTab === 'commercial' ? (
+                <HotelCommercialProfileTab hotel={auditResults} auditResults={auditResults} />
+              ) : (
+                <>
+                  {/* Barra de progreso */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs font-bold text-slate-400">
+                      <span>Porcentaje de Integridad Comercial</span>
+                      <span>{Math.round((auditResults.score / 7) * 100)}%</span>
                     </div>
-                  ))}
-                </div>
-              </div>
+                    <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden p-0.5 border border-slate-850">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          auditResults.score === 7
+                            ? 'bg-gradient-to-r from-emerald-600 to-emerald-400'
+                            : auditResults.score >= 4
+                              ? 'bg-gradient-to-r from-amber-600 to-amber-400'
+                              : 'bg-gradient-to-r from-rose-600 to-rose-400'
+                        }`}
+                        style={{ width: `${(auditResults.score / 7) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  {/* Tabla de Verificaciones */}
+                  <div className="space-y-3">
+                    <h4 className="font-bold text-slate-400 text-xs uppercase tracking-wider">Sellos del Molde de Hierro</h4>
+                    
+                    <div className="divide-y divide-slate-800/60 border border-slate-850 rounded-2xl overflow-hidden bg-slate-950">
+                      {auditResults.checks.map((check, index) => (
+                        <div key={index} className="flex items-center justify-between p-4 hover:bg-slate-900/50 transition">
+                          
+                          {/* Izquierda: Info check */}
+                          <div className="flex items-start gap-3">
+                            <span className="text-2xl mt-0.5">{check.icon}</span>
+                            <div>
+                              <div className="font-bold text-white text-sm">{check.name}</div>
+                              <div className="text-xs text-slate-400 mt-0.5 font-medium">{check.description}</div>
+                            </div>
+                          </div>
+
+                          {/* Derecha: Estado */}
+                          <div className="flex items-center gap-4">
+                            <div className="text-right">
+                              <span className="text-sm font-extrabold text-white">{check.current}</span>
+                              <span className="text-slate-500 text-xs"> / req: {check.required}</span>
+                            </div>
+                            <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-md border ${
+                              check.status === 'PASSED'
+                                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
+                                : check.status === 'INCOMPLETE'
+                                  ? 'bg-amber-500/10 border-amber-500/20 text-amber-500'
+                                  : 'bg-rose-500/10 border-rose-500/20 text-rose-500'
+                            }`}>
+                              {check.status}
+                            </span>
+                          </div>
+
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
             </>
           ) : (
             <div className="text-center py-32 text-slate-500 font-semibold">Seleccione un hotel para ver el reporte de integridad</div>
